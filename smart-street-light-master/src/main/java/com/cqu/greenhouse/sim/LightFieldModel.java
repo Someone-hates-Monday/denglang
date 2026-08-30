@@ -9,8 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 光场：自然光（透光×遮阳×床位南北梯度）+ 灯具余弦/距离衰减。
- * 棚体默认对齐 {@link GreenhouseGeometry}（cq-demo-bay-v1）。
+ * 光场：自然光（室外 PAR × 透光 × 遮阳 × 太阳高度 × 南北梯度）+ 灯具余弦/距离衰减。
  */
 public final class LightFieldModel {
 
@@ -32,7 +31,12 @@ public final class LightFieldModel {
     }
 
     public static FieldResult compute(GhZone zone, List<GhDevice> devices, double outdoorPar) {
-        return compute(zone, devices, outdoorPar, null, true);
+        return compute(zone, devices, outdoorPar, 720.0, null, true);
+    }
+
+    public static FieldResult compute(GhZone zone, List<GhDevice> devices, double outdoorPar,
+                                      double minuteOfDay) {
+        return compute(zone, devices, outdoorPar, minuteOfDay, null, true);
     }
 
     /**
@@ -40,6 +44,7 @@ public final class LightFieldModel {
      * @param lampsEnabled      false=不计补光，用于自然光基线
      */
     public static FieldResult compute(GhZone zone, List<GhDevice> devices, double outdoorPar,
+                                      double minuteOfDay,
                                       Integer shadeOpenOverride, boolean lampsEnabled) {
         double cover = zone.getCoverTransmittance() != null
                 ? zone.getCoverTransmittance().doubleValue()
@@ -49,7 +54,14 @@ public final class LightFieldModel {
                 : (zone.getShadeOpenPercent() != null ? zone.getShadeOpenPercent() : 100);
         double closed = 1.0 - shadeOpen / 100.0;
         double shadeTrans = 1.0 - GreenhouseGeometry.MAX_SHADE_BLOCK * closed;
-        double sunBase = Math.max(0, outdoorPar * cover * shadeTrans);
+
+        double[] sunAng = GreenhouseGeometry.solarElevationAzimuth(minuteOfDay, zone.getClimateProfileId());
+        double elev = sunAng[0];
+        double az = sunAng[1];
+        double elevFactor = GreenhouseGeometry.solarElevationFactor(elev);
+
+        // 室外 PAR 已是日变化；再乘高度角，保证夜间/低角度自然光归零或削弱
+        double sunBase = Math.max(0, outdoorPar * cover * shadeTrans * elevFactor);
 
         boolean diffuse = GreenhouseGeometry.isDiffuseProfile(zone.getClimateProfileId());
         double measureZ = GreenhouseGeometry.measurePlaneZ(zone.getZoneId());
@@ -76,16 +88,18 @@ public final class LightFieldModel {
         List<GridPoint> grid = new ArrayList<>(nx * ny);
         double sum = 0;
         double ledSum = 0;
+        double sunSum = 0;
         for (int iy = 0; iy < ny; iy++) {
             for (int ix = 0; ix < nx; ix++) {
                 double x = margin + (ix + 0.5) * usableL / nx;
                 double y = margin + (iy + 0.5) * usableW / ny;
-                double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse);
+                double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse, az, elev);
                 double led = lampContribution(x, y, measureZ, lamps);
                 double ppfd = sunIn + led;
                 grid.add(new GridPoint(x, y, ppfd, sunIn, led));
                 sum += ppfd;
                 ledSum += led;
+                sunSum += sunIn;
             }
         }
 
@@ -97,7 +111,7 @@ public final class LightFieldModel {
             double x = s.getPosX() != null ? s.getPosX().doubleValue() : length / 2;
             double y = s.getPosY() != null ? s.getPosY().doubleValue() : width / 2;
             double z = s.getPosZ() != null ? s.getPosZ().doubleValue() : measureZ;
-            double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse);
+            double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse, az, elev);
             double led = lampContribution(x, y, z, lamps);
             double ppfd = sunIn + led;
             sensorPpfd.put(s.getDeviceSn(), ppfd);
@@ -113,15 +127,15 @@ public final class LightFieldModel {
         if (sensorValues.isEmpty()) {
             effective = sum / grid.size();
             ledEff = ledSum / grid.size();
-            sunEff = sunBase;
+            sunEff = sunSum / grid.size();
         } else if ("MIN".equalsIgnoreCase(agg)) {
             effective = sensorValues.stream().mapToDouble(d -> d).min().orElse(0);
             ledEff = sensorLed.stream().mapToDouble(d -> d).average().orElse(0);
-            sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(sunBase);
+            sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(0);
         } else {
             effective = sensorValues.stream().mapToDouble(d -> d).average().orElse(0);
             ledEff = sensorLed.stream().mapToDouble(d -> d).average().orElse(0);
-            sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(sunBase);
+            sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(0);
         }
 
         return new FieldResult(effective, sunEff, ledEff, grid, sensorPpfd, nx, ny);
@@ -145,7 +159,6 @@ public final class LightFieldModel {
             double dz = Math.max(0.2, lz - z);
             double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
             double cos = dz / dist;
-            // 正下方 100% 调光 ≈ maxPpfdAtCanopy（布局冻结值）
             double maxCanopy = GreenhouseGeometry.lampMaxPpfdAtCanopy(lamp.getDeviceSn());
             double peak = maxCanopy * dz * dz;
             total += peak * cos / (dist * dist) * (dim / 100.0);

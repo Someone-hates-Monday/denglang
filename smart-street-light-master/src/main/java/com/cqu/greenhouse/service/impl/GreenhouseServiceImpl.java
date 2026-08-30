@@ -79,8 +79,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         List<GhDevice> devices = devicesOf(zoneId);
         double minute = currentMinuteOfDay();
         double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), minute);
-        LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor);
-        LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, 100, false);
+        LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor, minute);
+        LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, minute, 100, false);
 
         double humidity = synthHumidity(minute, zone.getShadeOpenPercent());
         double tempC = synthTemp(minute, outdoor);
@@ -391,8 +391,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             }
             List<GhDevice> devices = devicesOf(zone.getZoneId());
             double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), simMinuteOfDay);
-            LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor);
-            LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, 100, false);
+            LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay);
+            LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay, 100, false);
 
             double humidity = synthHumidity(simMinuteOfDay, zone.getShadeOpenPercent());
             double tempC = synthTemp(simMinuteOfDay, outdoor);
@@ -459,13 +459,29 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
 
     @Override
     public void resetSimDay() {
-        simMinuteOfDay = 0;
+        // 从上午 9:00 起跑，避免长时间「夜里只见灯峰」
+        simMinuteOfDay = 540;
         daySeries.clear();
         lastActionSimMinute.clear();
         for (GhZone zone : listZones()) {
             GhZone patch = new GhZone();
             patch.setLastDli(BigDecimal.ZERO);
+            // 演示重置：遮阳全开，避免「只剩灯峰、看不出日光」
+            patch.setShadeOpenPercent(100);
             zoneMapper.update(patch, new LambdaQueryWrapper<GhZone>().eq(GhZone::getZoneId, zone.getZoneId()));
+
+            List<GhDevice> devices = devicesOf(zone.getZoneId());
+            for (GhDevice d : devices) {
+                if ("SHADE_ACTUATOR".equals(d.getDeviceType())) {
+                    d.setShadeOpenPercent(100);
+                    deviceMapper.updateById(d);
+                } else if ("GROW_LAMP".equals(d.getDeviceType())) {
+                    // 中等补光，便于与日光对比（过强会淹没自然光）
+                    d.setDimmingPercent(20);
+                    d.setPowerOn(true);
+                    deviceMapper.updateById(d);
+                }
+            }
         }
         pushWs();
     }
@@ -484,8 +500,9 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     @Override
     public LightFieldModel.FieldResult previewField(String zoneId) {
         GhZone zone = requireZone(zoneId);
+        double minute = currentMinuteOfDay();
         return LightFieldModel.compute(zone, devicesOf(zoneId),
-                ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), currentMinuteOfDay()));
+                ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), minute), minute);
     }
 
     @Override

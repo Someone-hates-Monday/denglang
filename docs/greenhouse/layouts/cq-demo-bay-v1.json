@@ -71,11 +71,14 @@
         { "deviceSn": "LAMP-ZONE-A-03", "x": 6.0, "y": 2.35, "z": 1.45, "maxPpfdAtCanopy": 160, "beamHalfAngleDeg": 60, "servesBeds": ["BED-A-S", "BED-A-M"] },
         { "deviceSn": "LAMP-ZONE-A-04", "x": 6.0, "y": 5.35, "z": 1.45, "maxPpfdAtCanopy": 160, "beamHalfAngleDeg": 60, "servesBeds": ["BED-A-N", "BED-A-M"] }
       ],
-      "sensors": [
-        { "deviceSn": "PAR-ZONE-A-01", "x": 2.0, "y": 1.4, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-S" },
-        { "deviceSn": "PAR-ZONE-A-02", "x": 4.0, "y": 3.5, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
-        { "deviceSn": "PAR-ZONE-A-03", "x": 6.0, "y": 5.6, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-N" }
-      ],
+          "sensors": [
+            { "deviceSn": "PAR-ZONE-A-01", "x": 2.5, "y": 1.4, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-S", "notesZh": "灯下冠层" },
+            { "deviceSn": "PAR-ZONE-A-02", "x": 5.5, "y": 1.4, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-S" },
+            { "deviceSn": "PAR-ZONE-A-03", "x": 2.5, "y": 3.5, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
+            { "deviceSn": "PAR-ZONE-A-04", "x": 5.5, "y": 3.5, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
+            { "deviceSn": "PAR-ZONE-A-05", "x": 2.5, "y": 5.6, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-N" },
+            { "deviceSn": "PAR-ZONE-A-06", "x": 5.5, "y": 5.6, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-N" }
+          ],
       "shades": [
         { "deviceSn": "SHADE-ZONE-A", "x": 4.0, "y": 6.7, "z": 3.5, "coverX0": 0, "coverX1": 8, "layer": "EXTERNAL", "maxBlockFraction": 0.85, "rollFrom": "north" }
       ]
@@ -101,9 +104,12 @@
         { "deviceSn": "LAMP-ZONE-B-03", "x": 13.5, "y": 3.85, "z": 1.45, "maxPpfdAtCanopy": 140, "beamHalfAngleDeg": 60, "servesBeds": ["BED-B-S", "BED-B-M", "BED-B-N"] }
       ],
       "sensors": [
-        { "deviceSn": "PAR-ZONE-B-01", "x": 10.0, "y": 1.4, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
-        { "deviceSn": "PAR-ZONE-B-02", "x": 12.0, "y": 3.5, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
-        { "deviceSn": "PAR-ZONE-B-03", "x": 14.0, "y": 5.6, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" }
+        { "deviceSn": "PAR-ZONE-B-01", "x": 10.5, "y": 1.4, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S", "notesZh": "灯下冠层" },
+        { "deviceSn": "PAR-ZONE-B-02", "x": 13.5, "y": 1.4, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-03", "x": 10.5, "y": 3.5, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-04", "x": 13.5, "y": 3.5, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-05", "x": 10.5, "y": 5.6, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
+        { "deviceSn": "PAR-ZONE-B-06", "x": 13.5, "y": 5.6, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" }
       ],
       "shades": [
         { "deviceSn": "SHADE-ZONE-B", "x": 12.0, "y": 6.7, "z": 3.5, "coverX0": 8, "coverX1": 16, "layer": "EXTERNAL", "maxBlockFraction": 0.85, "rollFrom": "north" }
@@ -117,9 +123,13 @@
     "engineMvp": "three.js",
     "assetPipeline": "blender-glb-optional",
     "cinematicOptional": "unreal-engine-5",
+    "heatmap": "viridis-canopy-plane (整跨 A+B 合成 grid)",
+    "glbPipeline": "web/public/models/cq-demo-bay + npm run bake:glb · docs/greenhouse/GLB-PIPELINE.md",
     "referenceProjects": [
       "https://github.com/luminousphotonics/horticulture-lighting-simulator",
-      "https://github.com/MeadowMakerAi/greenhouse-cannabis-model"
-    ]
+      "https://github.com/MeadowMakerAi/greenhouse-cannabis-model",
+      "https://greenhousesimulator.space/"
+    ],
+    "notesZh": "对标 luminousphotonics：测量面 Viridis PPFD；对标 MeadowMaker：HUD+整棚一体场景。下一步可选 Blender GLB 替换程序化网格。"
   }
 }

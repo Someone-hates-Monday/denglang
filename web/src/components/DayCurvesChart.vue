@@ -68,16 +68,16 @@ function draw() {
   const plotW = W - pad.l - pad.r
   const plotH = H - pad.t - pad.b
   ctx.clearRect(0, 0, W, H)
-  ctx.fillStyle = '#f3f7f4'
+  ctx.fillStyle = '#fbfbfd'
   ctx.fillRect(0, 0, W, H)
 
   const series = densifySeries(props.series || [])
-  ctx.fillStyle = '#3a4f44'
-  ctx.font = '600 13px "Source Sans 3", sans-serif'
+  ctx.fillStyle = '#1d1d1f'
+  ctx.font = '600 13px system-ui, sans-serif'
   ctx.fillText(props.title || '日变化', pad.l, 18)
 
   // axes
-  ctx.strokeStyle = '#c9d8ce'
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)'
   ctx.beginPath()
   ctx.moveTo(pad.l, pad.t)
   ctx.lineTo(pad.l, pad.t + plotH)
@@ -86,8 +86,8 @@ function draw() {
 
   const xAt = (m: number) => pad.l + (m / 1440) * plotW
   // hour ticks
-  ctx.fillStyle = '#5a6e62'
-  ctx.font = '11px "IBM Plex Mono", monospace'
+  ctx.fillStyle = '#6e6e73'
+  ctx.font = '11px ui-monospace, monospace'
   for (let h = 0; h <= 24; h += 4) {
     const x = xAt(h * 60)
     ctx.beginPath()
@@ -98,7 +98,7 @@ function draw() {
   }
 
   if (!series.length) {
-    ctx.fillStyle = '#5a6e62'
+    ctx.fillStyle = '#86868b'
     ctx.fillText('等待仿真采样…（一天压缩为 2 分钟 · 连续推进）', pad.l + 8, pad.t + plotH / 2)
     return
   }
@@ -113,31 +113,31 @@ function draw() {
     const yH = (v: number) => pad.t + plotH - ((v - minH) / (maxH - minH)) * plotH
     const yT = (v: number) => pad.t + plotH - ((v - minT) / (maxT - minT)) * plotH
 
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yH(s.humidityPct), '#2f6f8f', 2)
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yT(s.temperatureC), '#b85c38', 2)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yH(s.humidityPct), '#0071e3', 2)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yT(s.temperatureC), '#ff9500', 2)
     legend(ctx, pad.l, [
-      { c: '#2f6f8f', t: '湿度 %' },
-      { c: '#b85c38', t: '温度 °C' },
+      { c: '#0071e3', t: '湿度 %' },
+      { c: '#ff9500', t: '温度 °C' },
     ])
   } else {
     const vals = series.flatMap((s) => [s.outdoorPpfd, s.naturalPpfd, s.controlledPpfd])
     const maxV = Math.max(50, ...vals) * 1.08
     const y = (v: number) => pad.t + plotH - (v / maxV) * plotH
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.outdoorPpfd), '#8aa193', 1.5)
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.naturalPpfd), '#5a8f6a', 2)
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.controlledPpfd), '#e6b84d', 2.5)
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.ledPpfd), '#c47a2c', 1.25)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.outdoorPpfd), '#aeaeb2', 1.5)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.naturalPpfd), '#34c759', 2)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.controlledPpfd), '#0071e3', 2.5)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.ledPpfd), '#ff9500', 1.25)
     legend(ctx, pad.l, [
-      { c: '#8aa193', t: '室外 PAR' },
-      { c: '#5a8f6a', t: '棚内自然（未控）' },
-      { c: '#e6b84d', t: '调控后有效光' },
-      { c: '#c47a2c', t: '补光贡献' },
+      { c: '#aeaeb2', t: '室外 PAR' },
+      { c: '#34c759', t: '棚内自然（未控）' },
+      { c: '#0071e3', t: '调控后有效光' },
+      { c: '#ff9500', t: '补光贡献' },
     ])
   }
 
   // playhead
   const px = xAt(props.minuteOfDay)
-  ctx.strokeStyle = '#102018'
+  ctx.strokeStyle = '#1d1d1f'
   ctx.setLineDash([4, 3])
   ctx.beginPath()
   ctx.moveTo(px, pad.t)
@@ -175,11 +175,11 @@ function legend(
   items: { c: string; t: string }[],
 ) {
   let x = x0 + 8
-  ctx.font = '11px "Source Sans 3", sans-serif'
+  ctx.font = '11px system-ui, sans-serif'
   for (const it of items) {
     ctx.fillStyle = it.c
     ctx.fillRect(x, 8, 10, 10)
-    ctx.fillStyle = '#3a4f44'
+    ctx.fillStyle = '#6e6e73'
     ctx.fillText(it.t, x + 14, 17)
     x += ctx.measureText(it.t).width + 28
   }
@@ -198,6 +198,6 @@ watch(() => [props.series, props.minuteOfDay, props.mode], draw, { deep: true })
   width: 100%;
   height: auto;
   display: block;
-  border: 1px solid #c9d8ce;
+  border-radius: 8px;
 }
 </style>

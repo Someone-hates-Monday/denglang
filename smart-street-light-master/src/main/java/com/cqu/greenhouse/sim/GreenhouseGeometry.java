@@ -70,12 +70,37 @@ public final class GreenhouseGeometry {
     }
 
     /**
-     * 南北自然光梯度：直射南×1.06 / 北×0.94；漫射南×1.02 / 北×0.98。
+     * 太阳高度对自然光的调制：夜间 0；低角度削弱；正午接近 1。
+     * 与 ClimateProfiles 室外 PAR 相乘，避免「有 PAR 曲线但未跟高度角」。
      */
-    public static double bedSunFactor(double y, boolean diffuse) {
+    public static double solarElevationFactor(double elevationDeg) {
+        if (elevationDeg <= 0.5) {
+            return 0;
+        }
+        double sinEl = Math.sin(Math.toRadians(elevationDeg));
+        return Math.max(0, Math.min(1.0, sinEl));
+    }
+
+    /**
+     * 南北自然光梯度：随太阳方位加强「南向采光」——正午偏南时南床更高。
+     *
+     * @param y           北向坐标（m）
+     * @param diffuse     漫射日型
+     * @param azFromNorth 太阳方位（北顺时针，°）
+     * @param elevDeg     高度角（°）
+     */
+    public static double bedSunFactor(double y, boolean diffuse, double azFromNorth, double elevDeg) {
         double south = diffuse ? 1.02 : 1.06;
         double mid = 1.0;
         double north = diffuse ? 0.98 : 0.94;
+        // 太阳越偏南（az≈180）且越高，南北差越大；清晨偏东时差缩小
+        double southBias = 1.0;
+        if (!diffuse && elevDeg > 5) {
+            double faceSouth = Math.max(0, Math.cos(Math.toRadians(azFromNorth - 180)));
+            southBias = 1.0 + 0.08 * faceSouth * solarElevationFactor(elevDeg);
+            south *= southBias;
+            north = mid - (south - mid) * 0.85;
+        }
         if (y <= BED_SOUTH_Y) {
             return south;
         }
@@ -88,6 +113,11 @@ public final class GreenhouseGeometry {
         }
         double t = (y - BED_MID_Y) / (BED_NORTH_Y - BED_MID_Y);
         return mid + t * (north - mid);
+    }
+
+    /** 兼容旧调用：无方位时用漫射中等梯度 */
+    public static double bedSunFactor(double y, boolean diffuse) {
+        return bedSunFactor(y, diffuse, 180, diffuse ? 30 : 45);
     }
 
     public static double lampMaxPpfdAtCanopy(String deviceSn) {
