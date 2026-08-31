@@ -1,10 +1,10 @@
 {
   "layoutId": "cq-demo-bay-v1",
-  "version": "1.2",
+  "version": "1.3",
   "titleZh": "重庆示范单跨拱棚",
-  "notesZh": "v1.2：每床东西双灯双PAR；石斛三床双层叠栽+上层灯测；日光高度角/方位角入库仿真",
-  "designDoc": "GREENHOUSE-DESIGN-DETAILED.md",
-  "frozenAt": "2026-08-30",
+  "notesZh": "v1.3：每床三灯抬高净空0.95m；光束55°；床体遮挡；分床控光。见 LIGHTING-UPGRADE-v1.3.md",
+  "designDoc": "LIGHTING-UPGRADE-v1.3.md",
+  "frozenAt": "2026-08-31",
   "coordinate": {
     "origin": "southwest_inner_corner_floor",
     "axis": { "x": "east", "y": "north", "z": "up" },
@@ -20,9 +20,21 @@
     "gutterHeightM": 2.8,
     "ridgeHeightM": 3.8,
     "coverTransmittance": 0.65,
-    "diffuseFractionDefault": 0.55,
+    "diffuseFractionDefault": 0.45,
     "externalShadeZ": 3.5,
     "externalShadeMaxBlockFraction": 0.85
+  },
+  "lightingDesign": {
+    "lampToCanopyClearanceM": 0.95,
+    "beamHalfAngleDeg": 55,
+    "aim": [0, 0, -1],
+    "barAxis": "east_west",
+    "controlGranularity": "per_bed",
+    "uniformityTargetU0": 0.6,
+    "references": [
+      "https://github.com/luminousphotonics/horticulture-lighting-simulator",
+      "docs/greenhouse/LIGHTING-UPGRADE-v1.3.md"
+    ]
   },
   "shadeSystem": {
     "primary": {
@@ -33,13 +45,6 @@
       "axisZh": "北侧卷轴，向南展开覆盖半跨屋面投影",
       "retractOpenPercentMeans": 100,
       "motors": ["SHADE-ZONE-A", "SHADE-ZONE-B"]
-    },
-    "secondaryOptional": {
-      "type": "INTERNAL_LOCAL",
-      "zoneId": "ZONE-B",
-      "nominalShadePct": 75,
-      "mvpWired": false,
-      "notesZh": "金线莲极限耐阴局部内衬，仅示意"
     }
   },
   "sunGradient": {
@@ -48,6 +53,16 @@
   },
   "grid": { "nx": 32, "ny": 14, "marginM": 0.25 },
   "aisle": { "betweenZones": { "x0": 7.5, "x1": 8.5 } },
+  "bedsCatalog": [
+    { "bedId": "BED-A-S", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 1.0, "y1": 1.8, "zTop": 0.90, "tier": "L0" },
+    { "bedId": "BED-A-M", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 3.1, "y1": 3.9, "zTop": 0.90, "tier": "L0" },
+    { "bedId": "BED-A-N", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 5.2, "y1": 6.0, "zTop": 0.90, "tier": "L0" },
+    { "bedId": "BED-A-M-L1", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 3.1, "y1": 3.9, "zTop": 1.35, "tier": "L1" },
+    { "bedId": "BED-A-N-L1", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 5.2, "y1": 6.0, "zTop": 1.35, "tier": "L1" },
+    { "bedId": "BED-B-S", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 1.0, "y1": 1.8, "zTop": 0.78, "tier": "L0" },
+    { "bedId": "BED-B-M", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 3.1, "y1": 3.9, "zTop": 0.78, "tier": "L0" },
+    { "bedId": "BED-B-N", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 5.2, "y1": 6.0, "zTop": 0.78, "tier": "L0" }
+  ],
   "zones": [
     {
       "zoneId": "ZONE-A",
@@ -66,15 +81,30 @@
         { "bedId": "BED-A-N", "y0": 5.2, "y1": 6.0, "zBed": 0.55, "role": "north", "cropProxy": "dendrobium_pot" }
       ],
       "lamps": [
-        { "deviceSn": "LAMP-ZONE-A-01", "x": 2.0, "y": 2.35, "z": 1.45, "maxPpfdAtCanopy": 160, "beamHalfAngleDeg": 60, "servesBeds": ["BED-A-S", "BED-A-M"] },
-        { "deviceSn": "LAMP-ZONE-A-02", "x": 2.0, "y": 5.35, "z": 1.45, "maxPpfdAtCanopy": 160, "beamHalfAngleDeg": 60, "servesBeds": ["BED-A-N", "BED-A-M"] },
-        { "deviceSn": "LAMP-ZONE-A-03", "x": 6.0, "y": 2.35, "z": 1.45, "maxPpfdAtCanopy": 160, "beamHalfAngleDeg": 60, "servesBeds": ["BED-A-S", "BED-A-M"] },
-        { "deviceSn": "LAMP-ZONE-A-04", "x": 6.0, "y": 5.35, "z": 1.45, "maxPpfdAtCanopy": 160, "beamHalfAngleDeg": 60, "servesBeds": ["BED-A-N", "BED-A-M"] }
+        { "deviceSn": "LAMP-ZONE-A-01", "x": 1.75, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-S"] },
+        { "deviceSn": "LAMP-ZONE-A-02", "x": 4.00, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-S"] },
+        { "deviceSn": "LAMP-ZONE-A-03", "x": 6.25, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-S"] },
+        { "deviceSn": "LAMP-ZONE-A-04", "x": 1.75, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-M"] },
+        { "deviceSn": "LAMP-ZONE-A-05", "x": 4.00, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-M"] },
+        { "deviceSn": "LAMP-ZONE-A-06", "x": 6.25, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-M"] },
+        { "deviceSn": "LAMP-ZONE-A-07", "x": 1.75, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-N"] },
+        { "deviceSn": "LAMP-ZONE-A-08", "x": 4.00, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-N"] },
+        { "deviceSn": "LAMP-ZONE-A-09", "x": 6.25, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-A-N"] },
+        { "deviceSn": "LAMP-ZONE-A-L1-01", "x": 4.00, "y": 3.50, "z": 2.15, "maxPpfdAtCanopy": 55, "beamHalfAngleDeg": 50, "aim": [0, 0, -1], "servesBeds": ["BED-A-M-L1"] },
+        { "deviceSn": "LAMP-ZONE-A-L1-02", "x": 4.00, "y": 5.60, "z": 2.15, "maxPpfdAtCanopy": 55, "beamHalfAngleDeg": 50, "aim": [0, 0, -1], "servesBeds": ["BED-A-N-L1"] }
       ],
       "sensors": [
-        { "deviceSn": "PAR-ZONE-A-01", "x": 2.0, "y": 1.4, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-S" },
-        { "deviceSn": "PAR-ZONE-A-02", "x": 4.0, "y": 3.5, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
-        { "deviceSn": "PAR-ZONE-A-03", "x": 6.0, "y": 5.6, "z": 0.9, "type": "PAR_SENSOR", "bedId": "BED-A-N" }
+        { "deviceSn": "PAR-ZONE-A-01", "x": 1.75, "y": 1.40, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-S" },
+        { "deviceSn": "PAR-ZONE-A-02", "x": 4.00, "y": 1.40, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-S" },
+        { "deviceSn": "PAR-ZONE-A-03", "x": 6.25, "y": 1.40, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-S" },
+        { "deviceSn": "PAR-ZONE-A-04", "x": 1.75, "y": 3.50, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
+        { "deviceSn": "PAR-ZONE-A-05", "x": 4.00, "y": 3.50, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
+        { "deviceSn": "PAR-ZONE-A-06", "x": 6.25, "y": 3.50, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-M" },
+        { "deviceSn": "PAR-ZONE-A-07", "x": 1.75, "y": 5.60, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-N" },
+        { "deviceSn": "PAR-ZONE-A-08", "x": 4.00, "y": 5.60, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-N" },
+        { "deviceSn": "PAR-ZONE-A-09", "x": 6.25, "y": 5.60, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-A-N" },
+        { "deviceSn": "PAR-ZONE-A-L1-01", "x": 4.00, "y": 3.50, "z": 1.35, "type": "PAR_SENSOR", "bedId": "BED-A-M-L1" },
+        { "deviceSn": "PAR-ZONE-A-L1-02", "x": 4.00, "y": 5.60, "z": 1.35, "type": "PAR_SENSOR", "bedId": "BED-A-N-L1" }
       ],
       "shades": [
         { "deviceSn": "SHADE-ZONE-A", "x": 4.0, "y": 6.7, "z": 3.5, "coverX0": 0, "coverX1": 8, "layer": "EXTERNAL", "maxBlockFraction": 0.85, "rollFrom": "north" }
@@ -96,14 +126,26 @@
         { "bedId": "BED-B-N", "y0": 5.2, "y1": 6.0, "zBed": 0.55, "role": "north", "cropProxy": "anoectochilus_mat" }
       ],
       "lamps": [
-        { "deviceSn": "LAMP-ZONE-B-01", "x": 10.0, "y": 2.35, "z": 1.45, "maxPpfdAtCanopy": 140, "beamHalfAngleDeg": 60, "servesBeds": ["BED-B-S", "BED-B-M"] },
-        { "deviceSn": "LAMP-ZONE-B-02", "x": 10.0, "y": 5.35, "z": 1.45, "maxPpfdAtCanopy": 140, "beamHalfAngleDeg": 60, "servesBeds": ["BED-B-N", "BED-B-M"] },
-        { "deviceSn": "LAMP-ZONE-B-03", "x": 13.5, "y": 3.85, "z": 1.45, "maxPpfdAtCanopy": 140, "beamHalfAngleDeg": 60, "servesBeds": ["BED-B-S", "BED-B-M", "BED-B-N"] }
+        { "deviceSn": "LAMP-ZONE-B-01", "x": 9.75, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
+        { "deviceSn": "LAMP-ZONE-B-02", "x": 12.00, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
+        { "deviceSn": "LAMP-ZONE-B-03", "x": 14.25, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
+        { "deviceSn": "LAMP-ZONE-B-04", "x": 9.75, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
+        { "deviceSn": "LAMP-ZONE-B-05", "x": 12.00, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
+        { "deviceSn": "LAMP-ZONE-B-06", "x": 14.25, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
+        { "deviceSn": "LAMP-ZONE-B-07", "x": 9.75, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] },
+        { "deviceSn": "LAMP-ZONE-B-08", "x": 12.00, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] },
+        { "deviceSn": "LAMP-ZONE-B-09", "x": 14.25, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] }
       ],
       "sensors": [
-        { "deviceSn": "PAR-ZONE-B-01", "x": 10.0, "y": 1.4, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
-        { "deviceSn": "PAR-ZONE-B-02", "x": 12.0, "y": 3.5, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
-        { "deviceSn": "PAR-ZONE-B-03", "x": 14.0, "y": 5.6, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" }
+        { "deviceSn": "PAR-ZONE-B-01", "x": 9.75, "y": 1.40, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-02", "x": 12.00, "y": 1.40, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-03", "x": 14.25, "y": 1.40, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-04", "x": 9.75, "y": 3.50, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-05", "x": 12.00, "y": 3.50, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-06", "x": 14.25, "y": 3.50, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-07", "x": 9.75, "y": 5.60, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
+        { "deviceSn": "PAR-ZONE-B-08", "x": 12.00, "y": 5.60, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
+        { "deviceSn": "PAR-ZONE-B-09", "x": 14.25, "y": 5.60, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" }
       ],
       "shades": [
         { "deviceSn": "SHADE-ZONE-B", "x": 12.0, "y": 6.7, "z": 3.5, "coverX0": 8, "coverX1": 16, "layer": "EXTERNAL", "maxBlockFraction": 0.85, "rollFrom": "north" }
@@ -115,8 +157,8 @@
   ],
   "viz": {
     "engineMvp": "three.js",
-    "assetPipeline": "blender-glb-optional",
-    "cinematicOptional": "unreal-engine-5",
+    "lampProxySizeM": [0.35, 0.03, 0.08],
+    "heatmap": "viridis-canopy-plane",
     "referenceProjects": [
       "https://github.com/luminousphotonics/horticulture-lighting-simulator",
       "https://github.com/MeadowMakerAi/greenhouse-cannabis-model"

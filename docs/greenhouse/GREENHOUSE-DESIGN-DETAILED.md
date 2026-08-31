@@ -149,7 +149,7 @@
 | 阶段 | 方案 | 理由 |
 |------|------|------|
 | **现在 · 控制台 MVP** | **Three.js**（现 Vue 页）+ 布局 JSON 驱动几何；遮阳/作物/灯代理体 | 与 MQTT/仿真同源、浏览器零安装、课程可改 |
-| **短期增强** | Blender 建「cq-demo-bay」低模 → **GLB** 替换代理棚体；灯具用简单 CAD 灯盘 | 观感接近 HLS Viewer，仍读同一坐标真源 |
+| **短期增强** | Blender 建「cq-demo-bay」低模 → **GLB** 替换代理棚体；灯具用简单 CAD 灯盘 | 观感接近 HLS Viewer，仍读同一坐标真源 · **已接通**：见 [GLB-PIPELINE.md](./GLB-PIPELINE.md)，`npm run bake:glb` |
 | **答辩可选** | UE5 导入同一 FBX/GLB + 读 `/greenhouse/.../effective-light` | 电影级光照；**不**替代业务前端 |
 | **不做** | 把 Radiance/UE 塞进每秒控制环 | 时延与答辩风险过高；矩阵光学足够 |
 

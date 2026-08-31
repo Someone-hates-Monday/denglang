@@ -1,57 +1,86 @@
 # Agent Handoff · 智慧光棚
 
-> 2026-08-30 · 仓库根 `wuliu-main` · 读本文 + `docs/greenhouse/` 即可开工。
+> 2026-08-31 · 仓库根 `wuliu-main` · **先读本文**，再按分工进 `docs/greenhouse/`。
 
 ---
 
-## 工程顺序（冻结）
+## 0. 两人轨分工（冻结 · 2026-08-31）
 
-1. **棚体空间设计**（已定）：[docs/greenhouse/GREENHOUSE-LAYOUT.md](./docs/greenhouse/GREENHOUSE-LAYOUT.md) + [`layouts/cq-demo-bay-v1.json`](./docs/greenhouse/layouts/cq-demo-bay-v1.json)  
+| 轨道 | 负责范围 | 下一步目标（真源） |
+|------|----------|-------------------|
+| **A · 大棚设计与控制（本轨优先）** | 棚体布局真源、光场/遮阳/三色补光、动态目标、性价比 AUTO、冠层 3D 控光反馈、工单**门控核心**（AUTO→PENDING、approve≠execute） | [CONFORMANCE.md](./docs/greenhouse/CONFORMANCE.md) **§6 P0** |
+| **B · 角色 / 权限 / 页面设计（交接组员）** | 六角色码与鉴权 UI、按角色导航与按钮显隐、设备页/日志页对接 `gh_*`、权限申请/联系/报告界面 | [RBAC-ROLES.md](./docs/greenhouse/RBAC-ROLES.md) **R1→R4**；[CONFORMANCE.md](./docs/greenhouse/CONFORMANCE.md) **P1–P3** |
+
+**边界：**  
+- B 轨改角色与壳层页面时，**不要改**光场公式、遮阳档、经济性规则、布局 JSON（除非先改布局文档并知会 A）。  
+- A 轨改控光 API 字段时，在 [INTEGRATION.md](./docs/greenhouse/INTEGRATION.md) / contracts 留一句，方便 B 接 UI。
+
+详细编制表：[TEAM-DIVISION.md](./docs/greenhouse/TEAM-DIVISION.md)。
+
+---
+
+## 1. 方案与文档放在哪
+
+| 要找什么 | 路径 |
+|----------|------|
+| **符合性 + 缺口解决方案（P0–P3）** | [`docs/greenhouse/CONFORMANCE.md`](./docs/greenhouse/CONFORMANCE.md) |
+| **角色权限 / 工单状态机 / 申请·联系·报告** | [`docs/greenhouse/RBAC-ROLES.md`](./docs/greenhouse/RBAC-ROLES.md) |
+| **棚体空间真源（禁擅自改尺寸灯位）** | [`docs/greenhouse/GREENHOUSE-LAYOUT.md`](./docs/greenhouse/GREENHOUSE-LAYOUT.md) + [`layouts/cq-demo-bay-v1.json`](./docs/greenhouse/layouts/cq-demo-bay-v1.json) |
+| 细化设计（叠层/遮阳材料/3D） | [`docs/greenhouse/GREENHOUSE-DESIGN-DETAILED.md`](./docs/greenhouse/GREENHOUSE-DESIGN-DETAILED.md) |
+| PRD / MoSCoW | [`docs/greenhouse/PRD-MVP.md`](./docs/greenhouse/PRD-MVP.md) |
+| 光场 / 配方 / MQTT 契约 | [`docs/greenhouse/contracts/`](./docs/greenhouse/contracts/) |
+| 本地启动 | [`docs/greenhouse/IMPLEMENT.md`](./docs/greenhouse/IMPLEMENT.md) |
+| 文档总索引 | [`docs/greenhouse/README.md`](./docs/greenhouse/README.md) |
+
+---
+
+## 2. 本轨已落地（A · 控制核心 · 摘要）
+
+- 物理遮阳（直射/漫射）+ 粗档 **100/70/40/10**
+- 三色补光光谱 + 网格 `r/g/bPpfd`；前端通道切换
+- 动态目标（光周期 / VPD / DLI 追赶）
+- 性价比 AUTO：欠光先开遮阳，过光先降灯；economics（产量指数/电费/建议）
+- 冠层 X 光切片 + 作物悬停实况
+- **v1.3 布灯**：每床 3 灯抬高净空、光束角、床架遮挡、**分床调光**（见 [LIGHTING-UPGRADE-v1.3.md](./docs/greenhouse/LIGHTING-UPGRADE-v1.3.md)）
+
+**已知未兑现（A 轨 P0）：** AUTO 大开度仍直发、approve 仍立即下发——见 CONFORMANCE §4 / §6。
+
+---
+
+## 3. 工程顺序（仍冻结）
+
+1. **棚体空间设计**（已定）：布局文档 + JSON  
 2. BOM / MQTT / 配方契约  
-3. 仿真与光场计算、前后端 **按布局同步坐标**（见布局文 §9 待办）
+3. 仿真与光场、前后端坐标同步  
 
 禁止在未改布局文档的情况下「优化」灯位或棚尺寸。
 
 ---
 
-## 已定方案（产品）
+## 4. 已定产品要点
 
 | 项 | 决策 |
 |----|------|
-| 产品 | **智慧光棚**：测光 → 光配方 → 补光/遮阳闭环 → 农艺工单 |
-| 棚体 | `cq-demo-bay-v1`：**16×7 m** 单跨拱棚；**长轴东西**；西南角原点；正午光自南 |
-| 分区 | ZONE-A 西半石斛（4 灯+3 PAR）；ZONE-B 东半金线莲/草莓（3 灯+3 PAR）；半跨外遮阳 |
-| 主作物 | 铁皮石斛：组培 60–70 / 栽培 90–120 PPFD |
-| 气候 | 重庆日型；演示日可压缩 120s |
-| 呈现目标 | 3D 对齐真实床/灯/测点；热力+未控/调控曲线 |
-| 硬件 | 演示 `sim.*`；BOM 真型号 |
-| Agent/RAG | 可选只读 |
-
-文档真源：`docs/greenhouse/`（**先读 GREENHOUSE-LAYOUT**）。
+| 产品 | 测光 → 配方 → 补光/遮阳闭环 → 农艺工单 |
+| 棚体 | `cq-demo-bay-v1`：16×7 m；长轴东西；西南角原点 |
+| 分区 | ZONE-A 石斛 · ZONE-B 金线莲/草莓 |
+| 气候 | 重庆日型；演示日约 120s |
+| 过光策略（实现口径） | **先降补光，硬限再用遮阳粗档**（经济性优先；PRD 字面待 P0.4 对齐） |
 
 ---
 
-## 需求 vs 完成（摘要）
-
-Must 闭环与 3D/2min 演示已落地；**`cq-demo-bay-v1` 坐标、灯数、32×14 网格、南北 `bedSunFactor`、连续仿真（250ms）已与布局真源同步**。
-
-下步：口播脚本、真机适配、工单/告警打磨。
-
----
-
-## 运行
+## 5. 运行
 
 | 项 | 值 |
 |----|-----|
 | 登录 | `admin` / `admin123` |
 | Web | `:5173` → `/greenhouse` |
 | API | `:8080` · PG `:5433` · EMQX `:1883` |
-| 启动 | `docs/greenhouse/IMPLEMENT.md` |
 
 Remotes：`origin`=xikunn/wuliu · `fork`/`denglang`=Someone-hates-Monday
 
 ---
 
-## Git
+## 6. Git
 
 仅用户要求时提交/推送；禁 force-push `main`。改棚体先改 `GREENHOUSE-LAYOUT` + JSON，再改代码。
