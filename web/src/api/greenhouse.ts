@@ -187,6 +187,15 @@ export type GhEffectiveLight = {
     noteZh: string
   }
   economics?: GhLightEconomics
+  sunModel?: Record<string, unknown>
+  bedStats?: {
+    bedId: string
+    avgPpfd: number
+    minPpfd: number
+    avgLed: number
+    cellCount: number
+    uniformityU0: number
+  }[]
   sensorPpfd?: Record<string, number>
   series?: DaySeriesPoint[]
 }

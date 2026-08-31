@@ -908,14 +908,24 @@ function brightnessAtSlice(
         if (dim <= 0) continue
         const lx = lamp.posX!
         const ly = lamp.posY ?? y
-        const lz = lamp.posZ ?? 1.45
+        const lz = lamp.posZ ?? 1.85
         const dx = x - lx
         const dy = y - ly
         const dz = Math.max(0.15, lz - z)
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
         const cos = dz / dist
-        const maxCanopy = (lamp.deviceSn || '').includes('ZONE-B') ? 140 : 160
-        const peak = maxCanopy * dz * dz
+        const halfAng = Math.cos((55 * Math.PI) / 180)
+        if (cos < halfAng * 0.85) {
+          const soft = Math.max(0, (cos - 0.05) / Math.max(0.2, halfAng))
+          if (soft < 0.05) continue
+        }
+        const maxCanopy = (lamp.deviceSn || '').includes('L1')
+          ? 55
+          : (lamp.deviceSn || '').includes('ZONE-B')
+            ? 80
+            : 95
+        const designH = (lamp.deviceSn || '').includes('L1') ? 0.8 : 0.95
+        const peak = maxCanopy * designH * designH
         ledSum += (peak * cos) / (dist * dist) * dim
       }
       const sun = cells.sun[i] ?? 0
@@ -1112,12 +1122,12 @@ function updateHeatmap(light: GhEffectiveLight) {
       if (d.posX == null || d.posY == null) continue
       if (d.deviceType === 'GROW_LAMP') {
         const dim = (d.dimmingPercent ?? 0) / 100
-        const lz = d.posZ ?? 1.45
+        const lz = d.posZ ?? 1.85
         if (assets?.ready) {
           lampGroup.add(makeGlbLamp(assets, d.posX, d.posY, lz, dim))
         } else {
           const bar = new THREE.Mesh(
-            new THREE.BoxGeometry(0.55, 0.045, 0.12),
+            new THREE.BoxGeometry(0.35, 0.03, 0.08),
             new THREE.MeshStandardMaterial({
               color: 0x1d1d1f,
               emissive: 0xffcc55,

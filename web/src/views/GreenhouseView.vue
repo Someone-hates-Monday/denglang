@@ -350,6 +350,14 @@ onUnmounted(() => {
     </div>
 
     <p v-if="economics?.adviceZh" class="econ-advice">{{ economics.adviceZh }}</p>
+    <p v-if="light?.bedStats?.length" class="econ-advice bed-stats">
+      分床均光：
+      <template v-for="(b, i) in light.bedStats" :key="b.bedId">
+        <span v-if="i"> · </span>{{ b.bedId.replace('BED-', '') }}
+        {{ Number(b.avgPpfd).toFixed(0) }}
+        <span class="muted">(U₀ {{ Number(b.uniformityU0).toFixed(2) }})</span>
+      </template>
+    </p>
 
     <div class="lower-bar">
       <button

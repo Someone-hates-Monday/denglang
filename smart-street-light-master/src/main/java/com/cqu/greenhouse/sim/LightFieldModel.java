@@ -5,12 +5,13 @@ import com.cqu.greenhouse.entity.GhZone;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 光场：自然光（室外 PAR × 膜透光 × 物理遮阳 × 太阳高度 × 南北梯度）
- * + 三色补光灯（余弦 / 距离²，光谱按配方份额）。
+ * 光场 v1.3：日光（直射/漫射 + 高度角 + 床架软影）+ 补光（逆平方 × 光束角 × 床体遮挡）。
+ * 布局真源：layouts/cq-demo-bay-v1.json · LIGHTING-UPGRADE-v1.3.md
  */
 public final class LightFieldModel {
 
@@ -19,6 +20,9 @@ public final class LightFieldModel {
             double ppfd, double sunPpfd, double ledPpfd,
             double rPpfd, double gPpfd, double bPpfd
     ) {
+    }
+
+    public record BedLightStat(String bedId, double avgPpfd, double minPpfd, double avgLed, int cellCount) {
     }
 
     public record FieldResult(
@@ -30,8 +34,16 @@ public final class LightFieldModel {
             int nx,
             int ny,
             double shadeTransmittance,
-            double coverTransmittance
+            double coverTransmittance,
+            Map<String, BedLightStat> bedStats,
+            Map<String, Object> sunModel
     ) {
+        public FieldResult(double effectivePpfd, double outdoorInPpfd, double ledEffectivePpfd,
+                           List<GridPoint> grid, Map<String, Double> sensorPpfd, int nx, int ny,
+                           double shadeTransmittance, double coverTransmittance) {
+            this(effectivePpfd, outdoorInPpfd, ledEffectivePpfd, grid, sensorPpfd, nx, ny,
+                    shadeTransmittance, coverTransmittance, Map.of(), Map.of());
+        }
     }
 
     private LightFieldModel() {
@@ -46,10 +58,6 @@ public final class LightFieldModel {
         return compute(zone, devices, outdoorPar, minuteOfDay, null, true);
     }
 
-    /**
-     * @param shadeOpenOverride null=用区当前开度；100=全开（少遮）用于「未控」基线
-     * @param lampsEnabled      false=不计补光，用于自然光基线
-     */
     public static FieldResult compute(GhZone zone, List<GhDevice> devices, double outdoorPar,
                                       double minuteOfDay,
                                       Integer shadeOpenOverride, boolean lampsEnabled) {
@@ -65,13 +73,15 @@ public final class LightFieldModel {
         double elev = sunAng[0];
         double az = sunAng[1];
         double elevFactor = GreenhouseGeometry.solarElevationFactor(elev);
-        boolean diffuse = GreenhouseGeometry.isDiffuseProfile(zone.getClimateProfileId());
+        boolean diffuseProfile = GreenhouseGeometry.isDiffuseProfile(zone.getClimateProfileId());
+        double diffuseF = GreenhouseGeometry.diffuseFraction(zone.getClimateProfileId());
 
-        double shadeTrans = physicalShadeTransmittance(closed, elevFactor, diffuse);
-        double sunBase = Math.max(0, outdoorPar * cover * shadeTrans * elevFactor);
+        double shadeTrans = physicalShadeTransmittance(closed, elevFactor, diffuseProfile);
+        double eBase = Math.max(0, outdoorPar * cover * shadeTrans * elevFactor);
 
         double measureZ = GreenhouseGeometry.measurePlaneZ(zone.getZoneId());
         String recipeId = zone.getRecipeId();
+        String zoneId = zone.getZoneId();
 
         List<GhDevice> lamps = lampsEnabled
                 ? devices.stream().filter(d -> "GROW_LAMP".equals(d.getDeviceType())).toList()
@@ -86,13 +96,21 @@ public final class LightFieldModel {
         double width = zone.getWidthM() != null
                 ? zone.getWidthM().doubleValue()
                 : GreenhouseGeometry.WIDTH_M;
+        // 半跨区：光场网格仍用整跨坐标，但区 bounds 在设备侧已分区
         int nx = GreenhouseGeometry.GRID_NX;
         int ny = GreenhouseGeometry.GRID_NY;
         double margin = GreenhouseGeometry.GRID_MARGIN_M;
         double usableL = Math.max(0.5, length - 2 * margin);
         double usableW = Math.max(0.5, width - 2 * margin);
 
+        List<GreenhouseGeometry.BedBox> occluders = GreenhouseGeometry.bedOccluders(zoneId);
+
         List<GridPoint> grid = new ArrayList<>(nx * ny);
+        Map<String, double[]> bedAcc = new LinkedHashMap<>(); // sum, min, ledSum, count
+        for (String bedId : GreenhouseGeometry.l0BedIds(zoneId)) {
+            bedAcc.put(bedId, new double[]{0, Double.POSITIVE_INFINITY, 0, 0});
+        }
+
         double sum = 0;
         double ledSum = 0;
         double sunSum = 0;
@@ -100,14 +118,38 @@ public final class LightFieldModel {
             for (int ix = 0; ix < nx; ix++) {
                 double x = margin + (ix + 0.5) * usableL / nx;
                 double y = margin + (iy + 0.5) * usableW / ny;
-                double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse, az, elev);
-                double led = lampContribution(x, y, measureZ, lamps);
+                double sunOcc = sunOcclusion(x, y, measureZ, elev, az, diffuseF, occluders);
+                double dirF = (1.0 - diffuseF) * GreenhouseGeometry.bedSunFactor(y, false, az, elev) * sunOcc;
+                double difF = diffuseF * GreenhouseGeometry.bedSunFactor(y, true, az, elev);
+                double sunIn = eBase * (dirF + difF);
+                double led = lampContribution(x, y, measureZ, lamps, occluders);
                 SpectrumShares.Rgb rgb = SpectrumShares.split(sunIn, led, recipeId);
                 double ppfd = sunIn + led;
                 grid.add(new GridPoint(x, y, ppfd, sunIn, led, rgb.r(), rgb.g(), rgb.b()));
                 sum += ppfd;
                 ledSum += led;
                 sunSum += sunIn;
+
+                String bedId = GreenhouseGeometry.bedIdAt(zoneId, x, y);
+                if (bedId != null && bedAcc.containsKey(bedId)) {
+                    double[] a = bedAcc.get(bedId);
+                    a[0] += ppfd;
+                    a[1] = Math.min(a[1], ppfd);
+                    a[2] += led;
+                    a[3] += 1;
+                }
+            }
+        }
+
+        Map<String, BedLightStat> bedStats = new LinkedHashMap<>();
+        for (Map.Entry<String, double[]> e : bedAcc.entrySet()) {
+            double[] a = e.getValue();
+            int n = (int) a[3];
+            if (n <= 0) {
+                bedStats.put(e.getKey(), new BedLightStat(e.getKey(), 0, 0, 0, 0));
+            } else {
+                bedStats.put(e.getKey(), new BedLightStat(
+                        e.getKey(), a[0] / n, a[1] == Double.POSITIVE_INFINITY ? 0 : a[1], a[2] / n, n));
             }
         }
 
@@ -119,8 +161,11 @@ public final class LightFieldModel {
             double x = s.getPosX() != null ? s.getPosX().doubleValue() : length / 2;
             double y = s.getPosY() != null ? s.getPosY().doubleValue() : width / 2;
             double z = s.getPosZ() != null ? s.getPosZ().doubleValue() : measureZ;
-            double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse, az, elev);
-            double led = lampContribution(x, y, z, lamps);
+            double sunOcc = sunOcclusion(x, y, z, elev, az, diffuseF, occluders);
+            double dirF = (1.0 - diffuseF) * GreenhouseGeometry.bedSunFactor(y, false, az, elev) * sunOcc;
+            double difF = diffuseF * GreenhouseGeometry.bedSunFactor(y, true, az, elev);
+            double sunIn = eBase * (dirF + difF);
+            double led = lampContribution(x, y, z, lamps, occluders);
             double ppfd = sunIn + led;
             sensorPpfd.put(s.getDeviceSn(), ppfd);
             sensorValues.add(ppfd);
@@ -131,47 +176,84 @@ public final class LightFieldModel {
         double effective;
         double ledEff;
         double sunEff;
-        String agg = zone.getAggregation() != null ? zone.getAggregation() : "AVG";
         if (sensorValues.isEmpty()) {
-            effective = sum / grid.size();
-            ledEff = ledSum / grid.size();
-            sunEff = sunSum / grid.size();
-        } else if ("MIN".equalsIgnoreCase(agg)) {
+            effective = sum / Math.max(1, grid.size());
+            ledEff = ledSum / Math.max(1, grid.size());
+            sunEff = sunSum / Math.max(1, grid.size());
+        } else if (zone.getAggregation() != null && "MIN".equalsIgnoreCase(zone.getAggregation())) {
             effective = sensorValues.stream().mapToDouble(d -> d).min().orElse(0);
             ledEff = sensorLed.stream().mapToDouble(d -> d).average().orElse(0);
             sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(0);
         } else {
+            // 区有效：各床传感器均值的平均，避免单点代表全区
             effective = sensorValues.stream().mapToDouble(d -> d).average().orElse(0);
             ledEff = sensorLed.stream().mapToDouble(d -> d).average().orElse(0);
             sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(0);
         }
 
-        return new FieldResult(effective, sunEff, ledEff, grid, sensorPpfd, nx, ny, shadeTrans, cover);
+        Map<String, Object> sunModel = new LinkedHashMap<>();
+        sunModel.put("elevationDeg", Math.round(elev * 10.0) / 10.0);
+        sunModel.put("azimuthDeg", Math.round(az * 10.0) / 10.0);
+        sunModel.put("elevFactor", Math.round(elevFactor * 1000.0) / 1000.0);
+        sunModel.put("diffuseFraction", Math.round(diffuseF * 1000.0) / 1000.0);
+        sunModel.put("outdoorPar", Math.round(outdoorPar * 10.0) / 10.0);
+        sunModel.put("eBaseAfterCoverShade", Math.round(eBase * 10.0) / 10.0);
+        sunModel.put("noteZh", "E_sun = E_out×τ_cover×τ_shade×sin(el)×(直射×床因子×软影 + 漫射×床因子)");
+
+        return new FieldResult(effective, sunEff, ledEff, grid, sensorPpfd, nx, ny, shadeTrans, cover,
+                bedStats, sunModel);
     }
 
-    /**
-     * 物理遮阳：直射挡得更狠、漫射仍有漏光；雾天以漫射为主故「关遮阳」体感弱一些。
-     */
     public static double physicalShadeTransmittance(double closed, double elevFactor, boolean diffuse) {
         closed = Math.max(0, Math.min(1, closed));
         double directFrac = diffuse
                 ? 0.22
                 : Math.max(0.15, Math.min(0.85, 0.25 + 0.55 * elevFactor));
         double diffuseFrac = 1.0 - directFrac;
-        // 直射：遮阳网几乎挡死；漫射：仍有散射漏光
         double directTrans = 1.0 - 0.97 * closed;
         double diffuseTrans = 1.0 - 0.78 * closed;
         return Math.max(0.04, directFrac * directTrans + diffuseFrac * diffuseTrans);
     }
 
-    /** 给定开度估算自然光缩放（相对全开），供经济性决策 */
     public static double naturalScaleForShadeOpen(GhZone zone, double outdoorPar, double minuteOfDay,
                                                   int shadeOpenPercent) {
         FieldResult f = compute(zone, List.of(), outdoorPar, minuteOfDay, shadeOpenPercent, false);
         return f.outdoorInPpfd();
     }
 
-    private static double lampContribution(double x, double y, double z, List<GhDevice> lamps) {
+    /** 直射软影：上层床架挡住从太阳来的直射 */
+    static double sunOcclusion(double x, double y, double z,
+                               double elevDeg, double azFromNorth, double diffuseF,
+                               List<GreenhouseGeometry.BedBox> occluders) {
+        if (elevDeg < 2 || diffuseF > 0.8) {
+            return 1.0;
+        }
+        double el = Math.toRadians(elevDeg);
+        double az = Math.toRadians(azFromNorth);
+        // 光来向的反方向：从点指向太阳
+        double dx = Math.sin(az) * Math.cos(el);
+        double dy = Math.cos(az) * Math.cos(el);
+        double dz = Math.sin(el);
+        double atten = 1.0;
+        for (GreenhouseGeometry.BedBox b : occluders) {
+            if (b.zTop() <= z + 0.05) {
+                continue;
+            }
+            double t = (b.zTop() - z) / Math.max(1e-3, dz);
+            if (t <= 0 || t > 25) {
+                continue;
+            }
+            double hx = x + dx * t;
+            double hy = y + dy * t;
+            if (hx >= b.x0() && hx <= b.x1() && hy >= b.y0() && hy <= b.y1()) {
+                atten *= b.sunTransmit();
+            }
+        }
+        return Math.max(0.15, atten);
+    }
+
+    private static double lampContribution(double x, double y, double z, List<GhDevice> lamps,
+                                           List<GreenhouseGeometry.BedBox> occluders) {
         double total = 0;
         for (GhDevice lamp : lamps) {
             if (Boolean.FALSE.equals(lamp.getPowerOn())) {
@@ -183,17 +265,71 @@ public final class LightFieldModel {
             }
             double lx = lamp.getPosX() != null ? lamp.getPosX().doubleValue() : x;
             double ly = lamp.getPosY() != null ? lamp.getPosY().doubleValue() : y;
-            double lz = lamp.getPosZ() != null ? lamp.getPosZ().doubleValue() : 1.45;
+            double lz = lamp.getPosZ() != null ? lamp.getPosZ().doubleValue() : 1.85;
             double dx = x - lx;
             double dy = y - ly;
-            double dz = Math.max(0.2, lz - z);
+            double dz = z - lz;
             double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            double cos = dz / dist;
+            if (dist < 0.05) {
+                continue;
+            }
+            // 光轴向下 (0,0,-1)，接收点相对灯的方向
+            double cosAim = (-dz) / dist;
+            if (cosAim <= 0.02) {
+                continue;
+            }
+            double halfAng = Math.toRadians(GreenhouseGeometry.beamHalfAngleDeg(lamp.getDeviceSn()));
+            double ang = Math.acos(Math.min(1, Math.max(-1, cosAim)));
+            double beam = 1.0;
+            if (ang > halfAng) {
+                double soft = Math.max(0, 1.0 - (ang - halfAng) / (Math.PI / 2 - halfAng + 1e-6));
+                beam = soft * soft;
+                if (beam < 0.02) {
+                    continue;
+                }
+            }
+            double designH = Math.max(0.4, GreenhouseGeometry.designClearanceM(lamp.getDeviceSn()));
             double maxCanopy = GreenhouseGeometry.lampMaxPpfdAtCanopy(lamp.getDeviceSn());
-            // 逆平方：在设计高度处峰值 ≈ maxCanopy
-            double peak = maxCanopy * dz * dz;
-            total += peak * cos / (dist * dist) * (dim / 100.0);
+            double peak = maxCanopy * designH * designH;
+            double occ = ledOcclusion(lx, ly, lz, x, y, z, occluders);
+            total += peak * cosAim / (dist * dist) * (dim / 100.0) * beam * occ;
         }
         return total;
+    }
+
+    /** 补光线穿过其它床冠层时衰减 */
+    static double ledOcclusion(double lx, double ly, double lz,
+                               double x, double y, double z,
+                               List<GreenhouseGeometry.BedBox> occluders) {
+        double dx = x - lx;
+        double dy = y - ly;
+        double dz = z - lz;
+        if (Math.abs(dz) < 1e-4) {
+            return 1.0;
+        }
+        double atten = 1.0;
+        for (GreenhouseGeometry.BedBox b : occluders) {
+            // 只挡在灯与点之间的冠层
+            double zLo = Math.min(lz, z);
+            double zHi = Math.max(lz, z);
+            if (b.zTop() <= zLo + 0.02 || b.zTop() >= zHi - 0.02) {
+                continue;
+            }
+            double t = (b.zTop() - lz) / dz;
+            if (t <= 0.02 || t >= 0.98) {
+                continue;
+            }
+            double hx = lx + dx * t;
+            double hy = ly + dy * t;
+            if (hx >= b.x0() && hx <= b.x1() && hy >= b.y0() && hy <= b.y1()) {
+                // 点若就在该床面上，不算「穿过」
+                if (Math.abs(z - b.zTop()) < 0.08
+                        && x >= b.x0() && x <= b.x1() && y >= b.y0() && y <= b.y1()) {
+                    continue;
+                }
+                atten *= b.ledTransmit();
+            }
+        }
+        return Math.max(0.08, atten);
     }
 }
