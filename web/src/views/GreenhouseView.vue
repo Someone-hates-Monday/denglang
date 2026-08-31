@@ -10,6 +10,7 @@ import {
 import { useRealtimeStore } from '../stores/realtime'
 import GreenhouseScene3D from '../components/GreenhouseScene3D.vue'
 import DayCurvesChart from '../components/DayCurvesChart.vue'
+import { HEAT_CHANNEL_LABEL, type HeatChannel } from '../scene/spectrumModel'
 
 const realtime = useRealtimeStore()
 const zones = ref<GhZone[]>([])
@@ -19,9 +20,25 @@ const profiles = ref<Record<string, { id: string; labelZh: string }>>({})
 const lights = ref<Record<string, GhEffectiveLight>>({})
 const zoneId = ref('ZONE-A')
 const showHeat = ref(true)
-const heatMode = ref<'total' | 'sun' | 'led'>('total')
+const heatChannel = ref<HeatChannel>('rgb')
+const heatChannels: HeatChannel[] = ['rgb', 'R', 'G', 'B', 'viridis', 'xray']
+const lowerTab = ref<'none' | 'charts' | 'orders'>('none')
 const err = ref('')
 let poll: number | undefined
+
+const gapStatus = computed(() => {
+  const el = light.value
+  const dyn = el?.dynamicTarget
+  if (!el || !dyn) return null
+  const v = Number(el.effectivePpfd)
+  if (dyn.photoperiodMask < 0.05) return { label: '光周期外', tone: 'muted' as const }
+  if (v < dyn.instantMin - 2) return { label: '偏低 · 先开遮再补', tone: 'warn' as const }
+  if (v > dyn.instantMax + 2) return { label: '偏高 · 先降灯', tone: 'warn' as const }
+  return { label: '在目标带内', tone: 'ok' as const }
+})
+
+const economics = computed(() => light.value?.economics ?? null)
+const shadeSteps = computed(() => economics.value?.shadeSteps ?? [100, 70, 40, 10])
 
 const climateOptions = computed(() =>
   Object.values(profiles.value).map((p) => ({ id: p.id, label: p.labelZh })),
@@ -116,8 +133,22 @@ async function resetDay() {
   await refresh()
 }
 
+function snapShade(pct: number) {
+  const steps = shadeSteps.value
+  let best = steps[0]
+  let dist = Math.abs(pct - best)
+  for (const s of steps) {
+    const d = Math.abs(pct - s)
+    if (d < dist) {
+      best = s
+      dist = d
+    }
+  }
+  return best
+}
+
 async function onShade(e: Event) {
-  const pct = Number((e.target as HTMLInputElement).value)
+  const pct = snapShade(Number((e.target as HTMLInputElement).value))
   const sn = zoneId.value === 'ZONE-B' ? 'SHADE-ZONE-B' : 'SHADE-ZONE-A'
   await greenhouseApi.shade(sn, pct)
   await refresh()
@@ -212,32 +243,18 @@ onUnmounted(() => {
           :data-on="showHeat"
           @click="showHeat = !showHeat"
         >
-          热力 {{ showHeat ? '开' : '关' }}
+          光场 {{ showHeat ? '开' : '关' }}
         </button>
         <div class="mode-group" v-if="showHeat">
           <button
+            v-for="ch in heatChannels"
+            :key="ch"
             type="button"
             class="ui-btn ui-btn-ghost ui-btn-compact"
-            :data-on="heatMode === 'total'"
-            @click="heatMode = 'total'"
+            :data-on="heatChannel === ch"
+            @click="heatChannel = ch"
           >
-            合成
-          </button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-ghost ui-btn-compact"
-            :data-on="heatMode === 'sun'"
-            @click="heatMode = 'sun'"
-          >
-            仅日光
-          </button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-ghost ui-btn-compact"
-            :data-on="heatMode === 'led'"
-            @click="heatMode = 'led'"
-          >
-            仅补光
+            {{ HEAT_CHANNEL_LABEL[ch] }}
           </button>
         </div>
       </div>
@@ -251,18 +268,25 @@ onUnmounted(() => {
 
     <div class="demo-sliders" v-if="light">
       <label class="slider">
-        <span>遮阳开度 {{ light.shadeOpenPercent }}%（关小→青层塌）</span>
+        <span
+          >遮阳粗档 {{ light.shadeOpenPercent }}%（仅
+          {{ shadeSteps.join('/') }}；关小挡直射）</span
+        >
         <input
           type="range"
-          min="0"
+          min="10"
           max="100"
-          step="5"
+          step="30"
           :value="light.shadeOpenPercent"
+          list="shade-steps"
           @change="onShade"
         />
+        <datalist id="shade-steps">
+          <option v-for="s in shadeSteps" :key="s" :value="s" />
+        </datalist>
       </label>
       <label class="slider">
-        <span>补光调光 {{ avgDim }}%（升高→黄峰起）</span>
+        <span>三色补光 {{ avgDim }}%（配方光谱 · 升高→灯下更亮）</span>
         <input type="range" min="0" max="100" step="5" :value="avgDim" @change="onDim" />
       </label>
     </div>
@@ -275,40 +299,84 @@ onUnmounted(() => {
         :shade-open-a="lights['ZONE-A']?.shadeOpenPercent ?? 100"
         :shade-open-b="lights['ZONE-B']?.shadeOpenPercent ?? 100"
         :show-heat="showHeat"
-        :heat-mode="heatMode"
+        :heat-channel="heatChannel"
       />
     </section>
 
     <div class="metrics" v-if="light">
       <div class="metric">
-        <span class="k">有效 PPFD</span>
-        <strong class="mono">{{ Number(light.effectivePpfd).toFixed(1) }}</strong>
+        <span class="k">实况</span>
+        <strong class="mono">{{ Number(light.effectivePpfd).toFixed(0) }}</strong>
+      </div>
+      <div class="metric" v-if="light.dynamicTarget">
+        <span class="k">此刻目标</span>
+        <strong class="mono"
+          >{{ light.dynamicTarget.instantMin.toFixed(0) }}–{{
+            light.dynamicTarget.instantMax.toFixed(0)
+          }}</strong
+        >
+      </div>
+      <div class="metric" v-if="gapStatus">
+        <span class="k">状态</span>
+        <strong class="gap" :data-tone="gapStatus.tone">{{ gapStatus.label }}</strong>
       </div>
       <div class="metric">
-        <span class="k">自然 / 补光</span>
+        <span class="k">日/灯</span>
         <strong class="mono">{{ light.naturalPpfd ?? '—' }} / {{ light.ledPpfd ?? '—' }}</strong>
       </div>
       <div class="metric">
-        <span class="k">温湿度</span>
-        <strong class="mono">{{ light.temperatureC ?? '—' }}°C · {{ light.humidityPct ?? '—' }}%</strong>
+        <span class="k">遮阳 · 调光</span>
+        <strong class="mono">{{ light.shadeOpenPercent }}% · {{ avgDim }}%</strong>
       </div>
       <div class="metric">
-        <span class="k">遮阳 · DLI</span>
-        <strong class="mono">{{ light.shadeOpenPercent }}% · {{ light.dliSoFar }}</strong>
-      </div>
-      <div class="metric" v-if="light.recipe">
-        <span class="k">目标带</span>
+        <span class="k">DLI</span>
         <strong class="mono"
-          >{{ light.recipe.ppfdTargetMin }}–{{ light.recipe.ppfdTargetMax }}</strong
+          >{{ light.dliSoFar
+          }}<template v-if="light.dynamicTarget">/{{ light.dynamicTarget.dliTargetMin }}</template></strong
         >
+      </div>
+      <div class="metric" v-if="economics">
+        <span class="k">产量指数</span>
+        <strong class="mono">{{ economics.yieldIndex.toFixed(2) }}</strong>
+      </div>
+      <div class="metric" v-if="economics">
+        <span class="k">电费估</span>
+        <strong class="mono">¥{{ economics.energyCostYuanEst.toFixed(2) }}</strong>
+      </div>
+      <div class="metric" v-if="economics">
+        <span class="k">平衡分</span>
+        <strong class="mono">{{ economics.balanceScore.toFixed(2) }}</strong>
       </div>
     </div>
 
-    <div class="ui-scroll-panel lower">
+    <p v-if="economics?.adviceZh" class="econ-advice">{{ economics.adviceZh }}</p>
+
+    <div class="lower-bar">
+      <button
+        type="button"
+        class="ui-btn ui-btn-ghost ui-btn-compact"
+        :data-on="lowerTab === 'charts'"
+        @click="lowerTab = lowerTab === 'charts' ? 'none' : 'charts'"
+      >
+        日曲线
+      </button>
+      <button
+        type="button"
+        class="ui-btn ui-btn-ghost ui-btn-compact"
+        :data-on="lowerTab === 'orders'"
+        @click="lowerTab = lowerTab === 'orders' ? 'none' : 'orders'"
+      >
+        工单
+        <span v-if="pendingOrders.length" class="badge">{{ pendingOrders.length }}</span>
+      </button>
+      <span v-if="light?.dynamicTarget?.noteZh" class="dyn-note">{{ light.dynamicTarget.noteZh }}</span>
+    </div>
+
+    <div class="ui-scroll-panel lower" v-if="lowerTab === 'charts'">
       <div class="charts">
         <div class="ui-card chart-wrap">
           <DayCurvesChart
-            title="光照：室外 · 自然 · 调控后"
+            title="光照与此刻目标带"
             mode="light"
             :series="series"
             :minute-of-day="light?.minuteOfDay ?? 0"
@@ -323,12 +391,11 @@ onUnmounted(() => {
           />
         </div>
       </div>
+    </div>
 
+    <div class="ui-scroll-panel lower" v-else-if="lowerTab === 'orders'">
       <section class="orders ui-card">
-        <h3 class="ui-section-title">
-          农艺工单
-          <span v-if="pendingOrders.length" class="badge">{{ pendingOrders.length }}</span>
-        </h3>
+        <h3 class="ui-section-title">农艺工单</h3>
         <ul v-if="orders.length">
           <li v-for="o in orders" :key="o.id">
             <div>
@@ -352,8 +419,9 @@ onUnmounted(() => {
 
 <style scoped>
 .gh {
-  gap: var(--space-3);
+  gap: var(--space-2);
   padding-top: var(--space-2);
+  min-height: 0;
 }
 
 .err {
@@ -480,7 +548,7 @@ onUnmounted(() => {
 
 .scene-card {
   flex: 1 1 0;
-  min-height: 380px;
+  min-height: 0;
   padding: 0;
   overflow: hidden;
   display: flex;
@@ -490,16 +558,15 @@ onUnmounted(() => {
 .metrics {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
   gap: var(--space-2);
 }
 
 .metric {
-  padding: 0.55rem 0.75rem;
+  padding: 0.4rem 0.55rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
 }
 
 .metric .k {
@@ -511,13 +578,54 @@ onUnmounted(() => {
 }
 
 .metric strong {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
+.econ-advice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+.gap[data-tone='ok'] {
+  color: var(--success, #34c759);
+}
+.gap[data-tone='warn'] {
+  color: var(--warning, #ff9500);
+}
+.gap[data-tone='muted'] {
+  color: var(--ink-muted);
+}
+
+.lower-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dyn-note {
+  flex: 1 1 12rem;
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lower {
-  flex: 0 1 auto;
-  max-height: min(26vh, 220px);
+  flex: 0 0 auto;
+  max-height: min(28vh, 240px);
 }
 
 .charts {

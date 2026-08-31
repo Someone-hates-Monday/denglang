@@ -16,6 +16,16 @@ import {
   type GhAssetPack,
   type ZoneCropInput,
 } from '../scene/greenhouseAssets'
+import {
+  HEAT_CHANNEL_LABEL,
+  channelMonoColor,
+  ledShareForRecipe,
+  rgbCompositeColor,
+  splitRgb,
+  viridisColor,
+  xrayColor,
+  type HeatChannel,
+} from '../scene/spectrumModel'
 
 const props = defineProps<{
   light: GhEffectiveLight | null
@@ -25,12 +35,16 @@ const props = defineProps<{
   shadeOpenA?: number
   shadeOpenB?: number
   showHeat?: boolean
-  /** total=日光基底+补光峰；sun=仅自然光；led=仅补光 */
-  heatMode?: 'total' | 'sun' | 'led'
+  /** xray | viridis | rgb | R | G | B */
+  heatChannel?: HeatChannel
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
 const assetSource = ref<'glb' | 'procedural' | 'loading'>('loading')
+/** X 光切片高度（m），滚轮调节 */
+const sliceZ = ref(0.85)
+const SLICE_Z_MIN = 0.45
+const SLICE_Z_MAX = 1.55
 let assets: GhAssetPack | null = null
 let renderer: THREE.WebGLRenderer | null = null
 let scene: THREE.Scene | null = null
@@ -40,6 +54,7 @@ let heatMesh: THREE.Mesh | null = null
 let heatSunMesh: THREE.Mesh | null = null
 let heatLedMesh: THREE.Mesh | null = null
 let heatBaseMesh: THREE.Mesh | null = null
+let sliceGhost: THREE.Line | null = null
 let shadeClothA: THREE.Mesh | null = null
 let shadeClothB: THREE.Mesh | null = null
 let sunLight: THREE.DirectionalLight | null = null
@@ -51,6 +66,7 @@ let sensorGroup: THREE.Group | null = null
 let structureKey = ''
 let raf = 0
 let disposed = false
+let lastLight: GhEffectiveLight | null = null
 let heatGrid: {
   nx: number
   ny: number
@@ -60,6 +76,9 @@ let heatGrid: {
   ppfd: Float32Array
   sun: Float32Array
   led: Float32Array
+  r: Float32Array
+  g: Float32Array
+  b: Float32Array
 } | null = null
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
@@ -67,7 +86,13 @@ const pointer = new THREE.Vector2()
 const hoverPpfd = ref<number | null>(null)
 const hoverSun = ref<number | null>(null)
 const hoverLed = ref<number | null>(null)
+const hoverR = ref<number | null>(null)
+const hoverG = ref<number | null>(null)
+const hoverB = ref<number | null>(null)
 const hoverXY = ref('')
+
+const heatChannel = computed(() => props.heatChannel || 'rgb')
+const channelHud = computed(() => HEAT_CHANNEL_LABEL[heatChannel.value])
 
 type CropHover = {
   bedId: string
@@ -78,8 +103,17 @@ type CropHover = {
   ppfd: number
   sun: number
   led: number
+  /** 此刻动态目标 */
   targetMin: number
   targetMax: number
+  /** 配方静态基带（对照） */
+  recipeMin: number
+  recipeMax: number
+  dliSoFar: number | null
+  dliTargetMin: number | null
+  dliRemaining: number | null
+  vpdKpa: number | null
+  noteZh: string
   temperatureC: number | null
   humidityPct: number | null
 }
@@ -145,35 +179,16 @@ const shadeWarn = computed(() => {
   const a = props.shadeOpenA ?? props.light?.shadeOpenPercent ?? 100
   const b = props.shadeOpenB ?? 100
   const open = Math.min(a, b)
-  if (open <= 15) return '遮阳几乎全关 · 青色日光层会塌平，尖峰主要是补光'
-  if (open <= 40) return `遮阳开度偏低（约 ${open}%）· 自然光被明显削弱`
+  if (open <= 15) return '遮阳几乎全关 · 切片上偏暗'
+  if (open <= 40) return `遮阳开度偏低（约 ${open}%）`
   return ''
 })
 
-/** Viridis-like：对齐 horticulture-lighting-simulator 可读性 */
-function ppfdColor(v: number, maxRef: number): [number, number, number] {
-  const t = Math.max(0, Math.min(1, v / Math.max(maxRef, 1)))
-  const stops: [number, number, number, number][] = [
-    [0, 68, 1, 84],
-    [0.25, 59, 82, 139],
-    [0.5, 33, 145, 140],
-    [0.75, 94, 201, 98],
-    [1, 253, 231, 37],
-  ]
-  for (let i = 0; i < stops.length - 1; i++) {
-    const a = stops[i]
-    const b = stops[i + 1]
-    if (t <= b[0]) {
-      const u = (t - a[0]) / (b[0] - a[0] || 1)
-      return [
-        Math.round(a[1] + (b[1] - a[1]) * u),
-        Math.round(a[2] + (b[2] - a[2]) * u),
-        Math.round(a[3] + (b[3] - a[3]) * u),
-      ]
-    }
-  }
-  return [253, 231, 37]
-}
+const sliceHud = computed(
+  () => `${channelHud.value} · z=${sliceZ.value.toFixed(2)} m · 滚轮调高`,
+)
+
+/** 已迁到 spectrumModel；保留别名避免旧引用 */
 
 function makeShadeTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas')
@@ -236,6 +251,7 @@ function buildScene(el: HTMLDivElement) {
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.06
+  controls.enableZoom = false
   controls.target.set(8, 1.2, 3.5)
   controls.maxPolarAngle = Math.PI * 0.48
   controls.minDistance = 6
@@ -583,7 +599,7 @@ function rebuildStructure(light: GhEffectiveLight) {
   const crops = zoneCropInputs()
   const cropSig = crops.map((c) => `${c.zoneId}:${cropLabel(c.recipe, c.zoneId, c.recipeId).key}`).join('|')
   const mode = assets?.ready ? 'glb' : 'proc'
-  const key = `${L}x${W}x${H}-v1.8-${mode}-${cropSig}`
+  const key = `${L}x${W}x${H}-v1.9-${mode}-${cropSig}`
   if (key === structureKey) return
   structureKey = key
   cropHitRoots = []
@@ -619,46 +635,20 @@ function rebuildStructure(light: GhEffectiveLight) {
   const nameA = cropLabel(crops.find((c) => c.zoneId === 'ZONE-A')?.recipe, 'ZONE-A', crops.find((c) => c.zoneId === 'ZONE-A')?.recipeId).nameZh
   const nameB = cropLabel(crops.find((c) => c.zoneId === 'ZONE-B')?.recipe, 'ZONE-B', crops.find((c) => c.zoneId === 'ZONE-B')?.recipeId).nameZh
 
-  const mark = (x: number, label: string, color: number) => {
+  // 仅地面色带 + 南向提示，避免与床标签/HUD 叠字
+  const strip = (x: number, color: number) => {
     const m = new THREE.Mesh(
-      new THREE.BoxGeometry(6.8, 0.04, 0.35),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 }),
+      new THREE.BoxGeometry(6.8, 0.03, 0.28),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.2 }),
     )
-    m.position.set(x, 0.04, 0.45)
+    m.position.set(x, 0.03, 0.4)
     group.add(m)
-    const s = makeLabelSprite(label, 3.2)
-    s.position.set(x, 1.85, 3.5)
-    group.add(s)
   }
-  mark(4, `西半跨 A · ${nameA}`, 0x34c759)
-  mark(12, `东半跨 B · ${nameB}`, cropKeyForZone('ZONE-B') === 'strawberry' ? 0xff3b30 : 0x0071e3)
-
-  for (const [cx, t] of [
-    [4, '外遮阳 · A'],
-    [12, '外遮阳 · B'],
-  ] as const) {
-    if (!usedGlb) {
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(7.2, 0.14, 0.18),
-        new THREE.MeshStandardMaterial({ color: 0x2c3338, metalness: 0.4, roughness: 0.45 }),
-      )
-      box.position.set(cx, 3.52, W - 0.1)
-      group.add(box)
-    }
-    const s = makeLabelSprite(t, 2.6)
-    s.position.set(cx, 3.78, W - 0.1)
-    group.add(s)
-  }
-
-  for (const [t, p] of [
-    ['南 · 日光', [L / 2, 0.55, -0.85]],
-    [`A · ${nameA}`, [4, 2.35, -0.55]],
-    [`B · ${nameB}`, [12, 2.35, -0.55]],
-  ] as const) {
-    const s = makeLabelSprite(t, 2.9)
-    s.position.set(p[0], p[1], p[2])
-    group.add(s)
-  }
+  strip(4, 0x34c759)
+  strip(12, cropKeyForZone('ZONE-B') === 'strawberry' ? 0xff3b30 : 0x0071e3)
+  const south = makeLabelSprite(`南 · A ${nameA} ｜ B ${nameB}`, 4.2)
+  south.position.set(L / 2, 0.5, -0.7)
+  group.add(south)
 
   scene.add(group)
   controls!.target.set(L / 2, 1.15, W / 2)
@@ -839,73 +829,137 @@ function sampleGridCells(
   ny: number,
   L: number,
   W: number,
-): { ppfd: Float32Array; sun: Float32Array; led: Float32Array } {
+): {
+  ppfd: Float32Array
+  sun: Float32Array
+  led: Float32Array
+  r: Float32Array
+  g: Float32Array
+  b: Float32Array
+} {
   const ppfd = new Float32Array(nx * ny)
   const sun = new Float32Array(nx * ny)
   const led = new Float32Array(nx * ny)
+  const r = new Float32Array(nx * ny)
+  const g = new Float32Array(nx * ny)
+  const b = new Float32Array(nx * ny)
   const grid = light.grid || []
+  const fill = (i: number, p: (typeof grid)[number] | undefined) => {
+    ppfd[i] = p?.ppfd ?? 0
+    sun[i] = p?.sunPpfd ?? 0
+    led[i] = p?.ledPpfd ?? 0
+    r[i] = p?.rPpfd ?? 0
+    g[i] = p?.gPpfd ?? 0
+    b[i] = p?.bPpfd ?? 0
+  }
+  // 后端按 iy→ix 顺序铺满 nx×ny，优先按序填充，避免坐标重映射留下大片 0（发黑）
+  if (grid.length === nx * ny) {
+    for (let i = 0; i < grid.length; i++) fill(i, grid[i])
+    return { ppfd, sun, led, r, g, b }
+  }
   if (grid.length && grid[0].x != null) {
     for (const p of grid) {
-      const ix = Math.min(nx - 1, Math.max(0, Math.floor(((p.x - 0.25) / (L - 0.5)) * nx)))
-      const iy = Math.min(ny - 1, Math.max(0, Math.floor(((p.y - 0.25) / (W - 0.5)) * ny)))
-      const i = iy * nx + ix
-      ppfd[i] = p.ppfd
-      sun[i] = p.sunPpfd ?? 0
-      led[i] = p.ledPpfd ?? 0
+      const ix = Math.min(nx - 1, Math.max(0, Math.round(((p.x - 0.25) / Math.max(0.5, L - 0.5)) * (nx - 1))))
+      const iy = Math.min(ny - 1, Math.max(0, Math.round(((p.y - 0.25) / Math.max(0.5, W - 0.5)) * (ny - 1))))
+      fill(iy * nx + ix, p)
     }
   } else {
-    for (let i = 0; i < Math.min(grid.length, nx * ny); i++) {
-      ppfd[i] = grid[i]?.ppfd ?? 0
-      sun[i] = grid[i]?.sunPpfd ?? 0
-      led[i] = grid[i]?.ledPpfd ?? 0
-    }
+    for (let i = 0; i < Math.min(grid.length, nx * ny); i++) fill(i, grid[i])
   }
-  return { ppfd, sun, led }
+  return { ppfd, sun, led, r, g, b }
 }
 
-function sunColor(v: number, maxRef: number): [number, number, number] {
-  const t = Math.max(0, Math.min(1, v / Math.max(maxRef, 1)))
-  // 日光：深蓝 → 天蓝 → 浅金
-  return [
-    Math.round(30 + t * 180),
-    Math.round(80 + t * 140),
-    Math.round(160 + t * 40),
-  ]
-}
-
-function ledColor(v: number, maxRef: number): [number, number, number] {
-  const t = Math.max(0, Math.min(1, v / Math.max(maxRef, 1)))
-  // 补光：暗底 → 琥珀 → 亮黄
-  return [
-    Math.round(40 + t * 215),
-    Math.round(20 + t * 180),
-    Math.round(10 + t * 30),
-  ]
-}
-
-function buildHeatGeometry(
+/** 在切片高度 z 上重算亮度，并按日光/补光光谱拆成 R/G/B */
+function brightnessAtSlice(
+  light: GhEffectiveLight,
   nx: number,
   ny: number,
   L: number,
   W: number,
-  baseZ: number,
-  values: Float32Array,
-  maxRef: number,
-  amp: number,
-  colorFn: (v: number, maxRef: number) => [number, number, number],
+  z: number,
+): {
+  bright: Float32Array
+  sun: Float32Array
+  led: Float32Array
+  r: Float32Array
+  g: Float32Array
+  b: Float32Array
+} {
+  const cells = sampleGridCells(light, nx, ny, L, W)
+  const bright = new Float32Array(nx * ny)
+  const led = new Float32Array(nx * ny)
+  const rCh = new Float32Array(nx * ny)
+  const gCh = new Float32Array(nx * ny)
+  const bCh = new Float32Array(nx * ny)
+  const aisle = L / 2
+  const canopyZ = Number(light.measurePlaneZ) || 0.85
+  const nearCanopy = Math.abs(z - canopyZ) < 0.08
+  const hasBackendRgb = cells.r.some((v) => v > 0)
+  const lamps = (light.devices || []).filter((d) => d.deviceType === 'GROW_LAMP' && d.posX != null)
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const i = iy * nx + ix
+      const x = (ix / Math.max(1, nx - 1)) * L
+      const y = (iy / Math.max(1, ny - 1)) * W
+      let ledSum = 0
+      for (const lamp of lamps) {
+        if (lamp.powerOn === false) continue
+        const dim = (lamp.dimmingPercent ?? 0) / 100
+        if (dim <= 0) continue
+        const lx = lamp.posX!
+        const ly = lamp.posY ?? y
+        const lz = lamp.posZ ?? 1.45
+        const dx = x - lx
+        const dy = y - ly
+        const dz = Math.max(0.15, lz - z)
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        const cos = dz / dist
+        const maxCanopy = (lamp.deviceSn || '').includes('ZONE-B') ? 140 : 160
+        const peak = maxCanopy * dz * dz
+        ledSum += (peak * cos) / (dist * dist) * dim
+      }
+      const sun = cells.sun[i] ?? 0
+      led[i] = ledSum
+      bright[i] = sun + ledSum
+      if (nearCanopy && hasBackendRgb && cells.r[i] > 0) {
+        // 冠层高度优先用后端三色分解（与物理遮阳/配方光谱一致）
+        const scale = cells.ppfd[i] > 1e-3 ? bright[i] / cells.ppfd[i] : 1
+        rCh[i] = cells.r[i] * scale
+        gCh[i] = cells.g[i] * scale
+        bCh[i] = cells.b[i] * scale
+      } else {
+        const zoneRecipe =
+          x < aisle
+            ? props.zoneLights?.['ZONE-A']?.recipeId || light.recipeId
+            : props.zoneLights?.['ZONE-B']?.recipeId || light.recipeId
+        const rgb = splitRgb(sun, ledSum, ledShareForRecipe(zoneRecipe))
+        rCh[i] = rgb.r
+        gCh[i] = rgb.g
+        bCh[i] = rgb.b
+      }
+    }
+  }
+  return { bright, sun: cells.sun, led, r: rCh, g: gCh, b: bCh }
+}
+
+function buildFlatHeatGeometry(
+  nx: number,
+  ny: number,
+  L: number,
+  W: number,
+  z: number,
+  colorAt: (i: number) => [number, number, number],
 ): THREE.BufferGeometry {
   const positions: number[] = []
   const colors: number[] = []
   const indices: number[] = []
   for (let iy = 0; iy < ny; iy++) {
     for (let ix = 0; ix < nx; ix++) {
-      const v = values[iy * nx + ix] ?? 0
-      const t = Math.max(0, Math.min(1, v / Math.max(maxRef, 1)))
+      const i = iy * nx + ix
       const x = (ix / Math.max(1, nx - 1)) * L
-      const z = (iy / Math.max(1, ny - 1)) * W
-      const y = baseZ + t * amp
-      positions.push(x, y, z)
-      const [r, g, b] = colorFn(v, maxRef)
+      const zz = (iy / Math.max(1, ny - 1)) * W
+      positions.push(x, z, zz)
+      const [r, g, b] = colorAt(i)
       colors.push(r / 255, g / 255, b / 255)
     }
   }
@@ -941,13 +995,11 @@ function makeHeatLayer(
 ): THREE.Mesh {
   const mesh = new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
       opacity,
       side: THREE.DoubleSide,
-      metalness: 0.05,
-      roughness: 0.7,
       depthWrite: false,
     }),
   )
@@ -977,71 +1029,76 @@ function makeSensorLabel(text: string): THREE.Sprite {
 
 function updateHeatmap(light: GhEffectiveLight) {
   if (!scene) return
+  lastLight = light
   const L = Number(light.lengthM) || 16
   const W = Number(light.widthM) || 7
   const nx = light.nx || 32
   const ny = light.ny || 14
   const visible = props.showHeat !== false
-  const mode = props.heatMode || 'total'
-  const baseZ = Number(light.measurePlaneZ) || 0.9
-  const cells = sampleGridCells(light, nx, ny, L, W)
-  heatGrid = { nx, ny, L, W, baseZ, ppfd: cells.ppfd, sun: cells.sun, led: cells.led }
+  const z = sliceZ.value
+  const field = brightnessAtSlice(light, nx, ny, L, W, z)
+  heatGrid = {
+    nx,
+    ny,
+    L,
+    W,
+    baseZ: z,
+    ppfd: field.bright,
+    sun: field.sun,
+    led: field.led,
+    r: field.r,
+    g: field.g,
+    b: field.b,
+  }
 
-  const sunMax = Math.max(...cells.sun, 1)
-  const ledMax = Math.max(...cells.led, 1)
-  const totMax = Math.max(...cells.ppfd, heatMax.value, 1)
+  const outdoor = Number(light.outdoorParPpfd) || 0
+  const brightRef = Math.max(outdoor * 0.55, ...field.bright, heatMax.value, 80)
+  const ch = heatChannel.value
+  const chRef =
+    ch === 'R'
+      ? Math.max(...field.r, brightRef * 0.4, 40)
+      : ch === 'G'
+        ? Math.max(...field.g, brightRef * 0.4, 40)
+        : ch === 'B'
+          ? Math.max(...field.b, brightRef * 0.4, 40)
+          : brightRef
 
   heatMesh = disposeMesh(heatMesh)
   heatSunMesh = disposeMesh(heatSunMesh)
   heatLedMesh = disposeMesh(heatLedMesh)
+  if (sliceGhost && scene) {
+    scene.remove(sliceGhost)
+    sliceGhost.geometry.dispose()
+    ;(sliceGhost.material as THREE.Material).dispose()
+    sliceGhost = null
+  }
 
   if (visible && (light.grid?.length ?? 0) > 0) {
-    if (mode === 'sun' || mode === 'total') {
-      // 日光：宽缓起伏（南北梯度），青色系 —— 遮阳一关这层会塌下去
-      const sunGeo = buildHeatGeometry(nx, ny, L, W, baseZ, cells.sun, Math.max(sunMax, 40), 0.7, sunColor)
-      heatSunMesh = makeHeatLayer(sunGeo, mode === 'sun' ? 0.88 : 0.55, 3)
-      scene.add(heatSunMesh)
-    }
-    if (mode === 'led' || mode === 'total') {
-      // 补光：局部尖峰，琥珀系 —— 调光升降峰高
-      const ledGeo = buildHeatGeometry(
-        nx,
-        ny,
-        L,
-        W,
-        baseZ + (mode === 'total' ? 0.02 : 0),
-        cells.led,
-        Math.max(ledMax, 40),
-        mode === 'total' ? 0.85 : 0.95,
-        ledColor,
-      )
-      heatLedMesh = makeHeatLayer(ledGeo, mode === 'led' ? 0.9 : 0.72, 5)
-      scene.add(heatLedMesh)
-    }
-    // 悬停用合成面（不可见碰撞）
-    const hitGeo = buildHeatGeometry(nx, ny, L, W, baseZ, cells.ppfd, totMax, 0.5, ppfdColor)
-    heatMesh = makeHeatLayer(hitGeo, 0.01, 6)
-    heatMesh.visible = true
+    const geo = buildFlatHeatGeometry(nx, ny, L, W, z, (i) => {
+      if (ch === 'rgb') return rgbCompositeColor(field.r[i], field.g[i], field.b[i], chRef)
+      if (ch === 'R') return channelMonoColor(field.r[i], chRef, 'R')
+      if (ch === 'G') return channelMonoColor(field.g[i], chRef, 'G')
+      if (ch === 'B') return channelMonoColor(field.b[i], chRef, 'B')
+      if (ch === 'viridis') return viridisColor(field.bright[i], chRef)
+      return xrayColor(field.bright[i], chRef)
+    })
+    heatMesh = makeHeatLayer(geo, 0.84, 5)
     scene.add(heatMesh)
+
+    const edge = new THREE.EdgesGeometry(new THREE.PlaneGeometry(L * 0.98, W * 0.95))
+    sliceGhost = new THREE.LineSegments(
+      edge,
+      new THREE.LineBasicMaterial({ color: 0xa8d4ff, transparent: true, opacity: 0.55 }),
+    )
+    sliceGhost.rotation.x = -Math.PI / 2
+    sliceGhost.position.set(L / 2, z + 0.002, W / 2)
+    sliceGhost.renderOrder = 6
+    scene.add(sliceGhost)
   }
 
-  if (!heatBaseMesh) {
-    heatBaseMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(L * 0.98, W * 0.95),
-      new THREE.MeshBasicMaterial({
-        color: 0x1d1d1f,
-        transparent: true,
-        opacity: 0.06,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      }),
-    )
-    heatBaseMesh.rotation.x = -Math.PI / 2
-    heatBaseMesh.renderOrder = 2
-    scene.add(heatBaseMesh)
+  if (heatBaseMesh) {
+    heatBaseMesh.visible = false
   }
-  heatBaseMesh.position.set(L / 2, baseZ, W / 2)
-  heatBaseMesh.visible = visible
 
   const closedA = 1 - (props.shadeOpenA ?? light.shadeOpenPercent ?? 100) / 100
   const closedB = 1 - (props.shadeOpenB ?? light.shadeOpenPercent ?? 100) / 100
@@ -1051,62 +1108,39 @@ function updateHeatmap(light: GhEffectiveLight) {
   if (lampGroup && sensorGroup) {
     while (lampGroup.children.length) lampGroup.remove(lampGroup.children[0])
     while (sensorGroup.children.length) sensorGroup.remove(sensorGroup.children[0])
-    const readings = light.sensorPpfd || {}
     for (const d of light.devices || []) {
       if (d.posX == null || d.posY == null) continue
       if (d.deviceType === 'GROW_LAMP') {
         const dim = (d.dimmingPercent ?? 0) / 100
-        const z = d.posZ ?? 1.45
+        const lz = d.posZ ?? 1.45
         if (assets?.ready) {
-          lampGroup.add(makeGlbLamp(assets, d.posX, d.posY, z, dim))
+          lampGroup.add(makeGlbLamp(assets, d.posX, d.posY, lz, dim))
         } else {
           const bar = new THREE.Mesh(
             new THREE.BoxGeometry(0.55, 0.045, 0.12),
             new THREE.MeshStandardMaterial({
               color: 0x1d1d1f,
               emissive: 0xffcc55,
-              emissiveIntensity: 0.25 + dim * 1.35,
+              emissiveIntensity: 0.2 + dim * 1.1,
               metalness: 0.5,
               roughness: 0.35,
             }),
           )
-          bar.position.set(d.posX, z, d.posY)
+          bar.position.set(d.posX, lz, d.posY)
           lampGroup.add(bar)
         }
-        if (dim > 0.02) {
-          const beamH = Math.max(0.25, z - baseZ)
-          const beam = new THREE.Mesh(
-            new THREE.ConeGeometry(0.38, beamH, 16, 1, true),
-            new THREE.MeshBasicMaterial({
-              color: 0xffe08a,
-              transparent: true,
-              opacity: 0.12 + dim * 0.2,
-              side: THREE.DoubleSide,
-              depthWrite: false,
-            }),
-          )
-          beam.position.set(d.posX, z - beamH / 2, d.posY)
-          beam.rotation.x = Math.PI
-          lampGroup.add(beam)
-        }
       } else if (d.deviceType === 'PAR_SENSOR') {
-        const z = d.posZ ?? baseZ
+        const sz = d.posZ ?? 0.85
         const disc = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.08, 0.08, 0.03, 14),
+          new THREE.CylinderGeometry(0.07, 0.07, 0.025, 12),
           new THREE.MeshStandardMaterial({
             color: 0xf5f5f7,
             emissive: 0x34c759,
-            emissiveIntensity: 0.55,
+            emissiveIntensity: 0.45,
           }),
         )
-        disc.position.set(d.posX, z, d.posY)
+        disc.position.set(d.posX, sz, d.posY)
         sensorGroup.add(disc)
-        const val = readings[d.deviceSn] ?? d.lastPpfd
-        const label = makeSensorLabel(
-          val != null ? `${Number(val).toFixed(0)} µmol` : 'PAR',
-        )
-        label.position.set(d.posX, z + 0.28, d.posY)
-        sensorGroup.add(label)
       }
     }
   }
@@ -1116,6 +1150,9 @@ function clearHover() {
   hoverPpfd.value = null
   hoverSun.value = null
   hoverLed.value = null
+  hoverR.value = null
+  hoverG.value = null
+  hoverB.value = null
   hoverXY.value = ''
   hoverCrop.value = null
 }
@@ -1147,6 +1184,7 @@ function fillCropHover(
   const sample = bed
     ? sampleBedPpfd(zone?.grid || props.light?.grid, bed)
     : { ppfd: 0, sun: 0, led: 0 }
+  const dyn = zone?.dynamicTarget
   hoverCrop.value = {
     bedId: meta.bedId,
     zoneId: meta.zoneId,
@@ -1156,8 +1194,15 @@ function fillCropHover(
     ppfd: sample.ppfd,
     sun: sample.sun,
     led: sample.led,
-    targetMin: zone?.recipe?.ppfdTargetMin ?? 0,
-    targetMax: zone?.recipe?.ppfdTargetMax ?? 0,
+    targetMin: dyn?.instantMin ?? zone?.recipe?.ppfdTargetMin ?? 0,
+    targetMax: dyn?.instantMax ?? zone?.recipe?.ppfdTargetMax ?? 0,
+    recipeMin: dyn?.recipeMin ?? zone?.recipe?.ppfdTargetMin ?? 0,
+    recipeMax: dyn?.recipeMax ?? zone?.recipe?.ppfdTargetMax ?? 0,
+    dliSoFar: dyn?.dliSoFar ?? zone?.dliSoFar ?? null,
+    dliTargetMin: dyn?.dliTargetMin ?? zone?.recipe?.dliTargetMin ?? null,
+    dliRemaining: dyn?.dliRemainingMin ?? null,
+    vpdKpa: dyn?.vpdKpa ?? zone?.vpdKpa ?? null,
+    noteZh: dyn?.noteZh ?? '',
     temperatureC: zone?.temperatureC ?? null,
     humidityPct: zone?.humidityPct ?? null,
   }
@@ -1212,11 +1257,31 @@ function onPointerMove(ev: PointerEvent) {
   hoverPpfd.value = heatGrid.ppfd[i]
   hoverSun.value = heatGrid.sun[i]
   hoverLed.value = heatGrid.led[i]
-  hoverXY.value = `x=${p.x.toFixed(1)}m · y北=${p.z.toFixed(1)}m`
+  hoverR.value = heatGrid.r[i]
+  hoverG.value = heatGrid.g[i]
+  hoverB.value = heatGrid.b[i]
+  hoverXY.value = `z=${sliceZ.value.toFixed(2)}m · x=${p.x.toFixed(1)} · y北=${p.z.toFixed(1)}`
+}
+
+function onWheel(ev: WheelEvent) {
+  if (props.showHeat === false) return
+  ev.preventDefault()
+  const step = ev.deltaY > 0 ? -0.05 : 0.05
+  sliceZ.value = Math.max(SLICE_Z_MIN, Math.min(SLICE_Z_MAX, +(sliceZ.value + step).toFixed(2)))
+  if (lastLight) updateHeatmap(lastLight)
+}
+
+function onSliceInput(ev: Event) {
+  sliceZ.value = Number((ev.target as HTMLInputElement).value)
+  if (lastLight) updateHeatmap(lastLight)
 }
 
 function apply(light: GhEffectiveLight | null) {
   if (!light || !scene) return
+  lastLight = light
+  if (sliceZ.value === 0.85 && light.measurePlaneZ) {
+    // 首次贴近测光面
+  }
   rebuildStructure(light)
   updateSun(light)
   updateHeatmap(light)
@@ -1239,6 +1304,7 @@ onMounted(async () => {
   if (!host) return
   buildScene(host)
   host.addEventListener('pointermove', onPointerMove)
+  host.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('resize', onResize)
   ro = new ResizeObserver(() => onResize())
   ro.observe(host)
@@ -1260,6 +1326,7 @@ onUnmounted(() => {
   disposed = true
   cancelAnimationFrame(raf)
   hostRef.value?.removeEventListener('pointermove', onPointerMove)
+  hostRef.value?.removeEventListener('wheel', onWheel)
   window.removeEventListener('resize', onResize)
   ro?.disconnect()
   controls?.dispose()
@@ -1272,10 +1339,10 @@ watch(
       props.light,
       props.zoneLights,
       props.showHeat,
+      props.heatChannel,
       props.shadeOpenA,
       props.shadeOpenB,
       props.focusZoneId,
-      props.heatMode,
     ] as const,
   () => apply(props.light),
   { deep: true },
@@ -1285,11 +1352,7 @@ watch(
 <template>
   <div class="wrap">
     <div ref="hostRef" class="scene" aria-label="智慧光棚三维整跨光场" />
-    <div
-      v-if="hoverCrop"
-      class="crop-tip"
-      :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
-    >
+    <div v-if="hoverCrop" class="crop-tip">
       <p class="tip-title">{{ hoverCrop.cropNameZh }} · {{ hoverCrop.roleZh }}</p>
       <p class="tip-sub">{{ hoverCrop.zoneId }} · {{ hoverCrop.stage }}</p>
       <dl class="tip-grid mono">
@@ -1298,56 +1361,82 @@ watch(
           <dd>{{ hoverCrop.ppfd.toFixed(1) }} µmol</dd>
         </div>
         <div>
-          <dt>理想光照</dt>
-          <dd>{{ hoverCrop.targetMin }}–{{ hoverCrop.targetMax }}</dd>
+          <dt>此刻目标</dt>
+          <dd>{{ hoverCrop.targetMin.toFixed(0) }}–{{ hoverCrop.targetMax.toFixed(0) }}</dd>
+        </div>
+        <div>
+          <dt>配方基带</dt>
+          <dd>{{ hoverCrop.recipeMin }}–{{ hoverCrop.recipeMax }}</dd>
+        </div>
+        <div>
+          <dt>日 DLI</dt>
+          <dd>
+            {{ hoverCrop.dliSoFar != null ? hoverCrop.dliSoFar.toFixed(2) : '—' }}
+            <template v-if="hoverCrop.dliTargetMin != null"
+              >/{{ hoverCrop.dliTargetMin.toFixed(2) }}</template
+            >
+            <span v-if="hoverCrop.dliRemaining != null && hoverCrop.dliRemaining > 0" class="tip-muted">
+              · 缺口 {{ hoverCrop.dliRemaining.toFixed(2) }}</span
+            >
+          </dd>
         </div>
         <div>
           <dt>日光 / 补光</dt>
           <dd>{{ hoverCrop.sun.toFixed(0) }} / {{ hoverCrop.led.toFixed(0) }}</dd>
         </div>
         <div>
-          <dt>温度 · 湿度</dt>
+          <dt>温湿 · VPD</dt>
           <dd>
             {{ hoverCrop.temperatureC != null ? hoverCrop.temperatureC.toFixed(1) + '°C' : '—' }} ·
             {{ hoverCrop.humidityPct != null ? hoverCrop.humidityPct.toFixed(0) + '%' : '—' }}
+            <template v-if="hoverCrop.vpdKpa != null">
+              · {{ hoverCrop.vpdKpa.toFixed(2) }} kPa</template
+            >
           </dd>
         </div>
       </dl>
+      <p v-if="hoverCrop.noteZh" class="tip-note">{{ hoverCrop.noteZh }}</p>
     </div>
     <aside class="hud">
       <p class="sun">{{ sunHud }}</p>
-      <p class="model">{{ modelHud }}</p>
+      <p class="model">{{ sliceHud }}</p>
       <p v-if="shadeWarn" class="warn">{{ shadeWarn }}</p>
-      <div class="legend-row">
-        <span class="chip sun-chip">青=日光</span>
-        <span class="chip led-chip">黄=补光</span>
-      </div>
+      <label class="slice-slider">
+        <span>切片高度</span>
+        <input
+          type="range"
+          :min="SLICE_Z_MIN"
+          :max="SLICE_Z_MAX"
+          step="0.05"
+          :value="sliceZ"
+          @input="onSliceInput"
+        />
+      </label>
       <div class="scale">
-        <div class="bar"><i class="grad" /></div>
+        <div class="bar"><i class="grad" :class="heatChannel" /></div>
         <div class="ticks mono">
           <span>{{ legendTicks.lo }}</span>
           <span>{{ legendTicks.mid }}</span>
           <span>{{ legendTicks.hi }}</span>
         </div>
-        <p class="unit">µmol·m⁻²·s⁻¹ · 高度∝分量</p>
+        <p class="unit">{{ channelHud }} · µmol · 平面切片</p>
       </div>
       <p v-if="hoverCrop" class="hover mono">
         {{ hoverCrop.cropNameZh }} · 实况 {{ hoverCrop.ppfd.toFixed(1) }}
         <br />
         <span class="dim"
-          >目标 {{ hoverCrop.targetMin }}–{{ hoverCrop.targetMax }} ·
-          {{ hoverCrop.temperatureC ?? '—' }}°C · {{ hoverCrop.humidityPct ?? '—' }}%</span
+          >此刻目标 {{ hoverCrop.targetMin.toFixed(0) }}–{{ hoverCrop.targetMax.toFixed(0) }}</span
         >
       </p>
       <p v-else-if="hoverPpfd != null" class="hover mono">
-        合计 {{ hoverPpfd.toFixed(1) }}
+        Σ {{ hoverPpfd.toFixed(1) }}
         <span class="dim"
-          >（日 {{ hoverSun?.toFixed(1) ?? '—' }} + 灯 {{ hoverLed?.toFixed(1) ?? '—' }}）</span
+          >· R {{ hoverR?.toFixed(0) }} · G {{ hoverG?.toFixed(0) }} · B {{ hoverB?.toFixed(0) }}</span
         >
         <br />
         <span class="dim">{{ hoverXY }}</span>
       </p>
-      <p v-else class="hint">悬停作物床读作物与温光湿 · 或悬停光场读格点</p>
+      <p v-else class="hint">拖高度/滚轮换层 · 悬停读 R/G/B</p>
     </aside>
   </div>
 </template>
@@ -1371,20 +1460,39 @@ watch(
 }
 .hud {
   position: absolute;
-  left: 0.75rem;
-  bottom: 0.75rem;
-  max-width: 17rem;
-  padding: 0.55rem 0.7rem;
-  background: rgba(255, 255, 255, 0.88);
+  left: 0.6rem;
+  top: 0.6rem;
+  bottom: auto;
+  max-width: 14rem;
+  padding: 0.45rem 0.55rem;
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: var(--ink);
-  font-size: 0.72rem;
-  line-height: 1.4;
+  font-size: 0.68rem;
+  line-height: 1.35;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   pointer-events: none;
   box-shadow: var(--shadow-sm);
+}
+.crop-tip {
+  position: absolute;
+  z-index: 4;
+  right: 0.6rem;
+  top: 0.6rem;
+  left: auto;
+  min-width: 11rem;
+  max-width: 13.5rem;
+  padding: 0.5rem 0.65rem;
+  background: rgba(29, 29, 31, 0.92);
+  color: #f5f5f7;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  font-size: 0.7rem;
+  line-height: 1.35;
 }
 .sun {
   margin: 0 0 0.3rem;
@@ -1440,7 +1548,22 @@ watch(
 }
 .bar .grad {
   flex: 1;
+  background: linear-gradient(90deg, #05070a, #3a4a58, #c8dce8, #f4fbff);
+}
+.bar .grad.viridis {
   background: linear-gradient(90deg, #440154, #31688e, #35b779, #fde725);
+}
+.bar .grad.rgb {
+  background: linear-gradient(90deg, #1a0505, #c02020, #20a040, #2060e0, #f0f0ff);
+}
+.bar .grad.R {
+  background: linear-gradient(90deg, #140808, #ff3030);
+}
+.bar .grad.G {
+  background: linear-gradient(90deg, #081408, #30e050);
+}
+.bar .grad.B {
+  background: linear-gradient(90deg, #080814, #4080ff);
 }
 .ticks {
   display: flex;
@@ -1464,21 +1587,6 @@ watch(
   font-weight: 400;
   color: var(--ink-soft);
   font-size: 0.68rem;
-}
-.crop-tip {
-  position: absolute;
-  z-index: 4;
-  min-width: 11.5rem;
-  max-width: 14rem;
-  padding: 0.55rem 0.7rem;
-  background: rgba(29, 29, 31, 0.9);
-  color: #f5f5f7;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: var(--shadow-sm);
-  pointer-events: none;
-  font-size: 0.72rem;
-  line-height: 1.35;
 }
 .tip-title {
   margin: 0;
@@ -1508,5 +1616,16 @@ watch(
   margin: 0;
   font-weight: 600;
   font-size: 0.78rem;
+}
+.tip-muted {
+  font-weight: 400;
+  opacity: 0.7;
+  font-size: 0.65rem;
+}
+.tip-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: rgba(245, 245, 247, 0.55);
 }
 </style>

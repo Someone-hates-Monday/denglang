@@ -55,6 +55,7 @@ export type GhDevice = {
   deviceType: string
   dimmingPercent?: number
   shadeOpenPercent?: number
+  powerOn?: boolean
   lastPpfd?: number
   onlineStatus?: string
   posX?: number
@@ -83,6 +84,53 @@ export type DaySeriesPoint = {
   temperatureC: number
   shadeOpenPercent: number
   avgDimmingPercent: number
+  /** 动态瞬时目标带 */
+  targetPpfdMin?: number
+  targetPpfdMax?: number
+  vpdKpa?: number
+  dliSoFar?: number
+}
+
+/** 配方基带经光周期 / VPD / DLI 追赶后的此刻目标 */
+export type GhDynamicTarget = {
+  recipeMin: number
+  recipeMax: number
+  instantMin: number
+  instantMax: number
+  hardMin: number
+  hardMax: number
+  photoperiodMask: number
+  vpdKpa: number
+  vpdFactor: number
+  dliCatchUp: number
+  dliSoFar: number
+  dliTargetMin: number
+  dliTargetMax: number
+  dliExpectedByNow: number
+  dliRemainingMin: number
+  photoperiodHours: number
+  noteZh: string
+}
+
+export type GhLightEconomics = {
+  shadeSteps: number[]
+  shadeOpenSnapped: number
+  ledShareR: number
+  ledShareG: number
+  ledShareB: number
+  avgDimmingPercent: number
+  lampCount: number
+  ledKwhTodayEst: number
+  energyCostYuanEst: number
+  yieldIndex: number
+  balanceScore: number
+  naturalPpfd: number
+  ledPpfd: number
+  effectivePpfd: number
+  targetMin: number
+  targetMax: number
+  yuanPerKwh: number
+  adviceZh: string
 }
 
 export type GhEffectiveLight = {
@@ -103,6 +151,7 @@ export type GhEffectiveLight = {
   effectivePpfd: number
   humidityPct?: number
   temperatureC?: number
+  vpdKpa?: number
   dliSoFar: number
   shadeOpenPercent: number
   autoControl: boolean
@@ -117,9 +166,27 @@ export type GhEffectiveLight = {
   solarElevationDeg?: number
   solarAzimuthDeg?: number
   sunVisible?: boolean
-  grid: { x: number; y: number; ppfd: number; sunPpfd?: number; ledPpfd?: number }[]
+  shadeTransmittance?: number
+  coverTransmittance?: number
+  grid: {
+    x: number
+    y: number
+    ppfd: number
+    sunPpfd?: number
+    ledPpfd?: number
+    rPpfd?: number
+    gPpfd?: number
+    bPpfd?: number
+  }[]
   devices: GhDevice[]
   recipe?: GhRecipe
+  dynamicTarget?: GhDynamicTarget
+  spectrum?: {
+    sunShare: { r: number; g: number; b: number }
+    ledShare: { r: number; g: number; b: number }
+    noteZh: string
+  }
+  economics?: GhLightEconomics
   sensorPpfd?: Record<string, number>
   series?: DaySeriesPoint[]
 }

@@ -54,6 +54,16 @@ function lerpPoint(a: DaySeriesPoint, b: DaySeriesPoint, t: number): DaySeriesPo
     temperatureC: L(a.temperatureC, b.temperatureC),
     shadeOpenPercent: L(a.shadeOpenPercent, b.shadeOpenPercent),
     avgDimmingPercent: L(a.avgDimmingPercent, b.avgDimmingPercent),
+    targetPpfdMin:
+      a.targetPpfdMin != null && b.targetPpfdMin != null
+        ? L(a.targetPpfdMin, b.targetPpfdMin)
+        : a.targetPpfdMin ?? b.targetPpfdMin,
+    targetPpfdMax:
+      a.targetPpfdMax != null && b.targetPpfdMax != null
+        ? L(a.targetPpfdMax, b.targetPpfdMax)
+        : a.targetPpfdMax ?? b.targetPpfdMax,
+    vpdKpa: a.vpdKpa != null && b.vpdKpa != null ? L(a.vpdKpa, b.vpdKpa) : a.vpdKpa ?? b.vpdKpa,
+    dliSoFar: a.dliSoFar != null && b.dliSoFar != null ? L(a.dliSoFar, b.dliSoFar) : a.dliSoFar ?? b.dliSoFar,
   }
 }
 
@@ -120,18 +130,47 @@ function draw() {
       { c: '#ff9500', t: '温度 °C' },
     ])
   } else {
-    const vals = series.flatMap((s) => [s.outdoorPpfd, s.naturalPpfd, s.controlledPpfd])
+    const vals = series.flatMap((s) => [
+      s.outdoorPpfd,
+      s.naturalPpfd,
+      s.controlledPpfd,
+      s.targetPpfdMax ?? 0,
+      s.targetPpfdMin ?? 0,
+    ])
     const maxV = Math.max(50, ...vals) * 1.08
     const y = (v: number) => pad.t + plotH - (v / maxV) * plotH
+
+    // 动态目标带（半透明）
+    const hasTarget = series.some((s) => s.targetPpfdMax != null)
+    if (hasTarget && series.length >= 2) {
+      ctx.beginPath()
+      series.forEach((s, i) => {
+        const xi = xAt(s.minuteOfDay)
+        const yi = y(s.targetPpfdMax ?? 0)
+        if (i === 0) ctx.moveTo(xi, yi)
+        else ctx.lineTo(xi, yi)
+      })
+      for (let i = series.length - 1; i >= 0; i--) {
+        const s = series[i]
+        ctx.lineTo(xAt(s.minuteOfDay), y(s.targetPpfdMin ?? 0))
+      }
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(175, 82, 222, 0.14)'
+      ctx.fill()
+      strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.targetPpfdMax ?? 0), '#af52de', 1)
+      strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.targetPpfdMin ?? 0), '#af52de', 1)
+    }
+
     strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.outdoorPpfd), '#aeaeb2', 1.5)
     strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.naturalPpfd), '#34c759', 2)
     strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.controlledPpfd), '#0071e3', 2.5)
     strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => y(s.ledPpfd), '#ff9500', 1.25)
     legend(ctx, pad.l, [
       { c: '#aeaeb2', t: '室外 PAR' },
-      { c: '#34c759', t: '棚内自然（未控）' },
-      { c: '#0071e3', t: '调控后有效光' },
-      { c: '#ff9500', t: '补光贡献' },
+      { c: '#34c759', t: '棚内自然' },
+      { c: '#0071e3', t: '调控后' },
+      { c: '#ff9500', t: '补光' },
+      { c: '#af52de', t: '此刻目标带' },
     ])
   }
 

@@ -11,7 +11,7 @@ public final class GreenhouseGeometry {
     public static final double GUTTER_HEIGHT_M = 2.8;
     public static final double RIDGE_HEIGHT_M = 3.8;
     public static final double COVER_TRANSMITTANCE = 0.65;
-    public static final double MAX_SHADE_BLOCK = 0.85;
+    public static final double MAX_SHADE_BLOCK = 0.92;
     public static final double EXTERNAL_SHADE_Z = 3.5;
     public static final int GRID_NX = 32;
     public static final int GRID_NY = 14;

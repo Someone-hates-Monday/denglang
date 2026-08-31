@@ -9,11 +9,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 光场：自然光（室外 PAR × 透光 × 遮阳 × 太阳高度 × 南北梯度）+ 灯具余弦/距离衰减。
+ * 光场：自然光（室外 PAR × 膜透光 × 物理遮阳 × 太阳高度 × 南北梯度）
+ * + 三色补光灯（余弦 / 距离²，光谱按配方份额）。
  */
 public final class LightFieldModel {
 
-    public record GridPoint(double x, double y, double ppfd, double sunPpfd, double ledPpfd) {
+    public record GridPoint(
+            double x, double y,
+            double ppfd, double sunPpfd, double ledPpfd,
+            double rPpfd, double gPpfd, double bPpfd
+    ) {
     }
 
     public record FieldResult(
@@ -23,7 +28,9 @@ public final class LightFieldModel {
             List<GridPoint> grid,
             Map<String, Double> sensorPpfd,
             int nx,
-            int ny
+            int ny,
+            double shadeTransmittance,
+            double coverTransmittance
     ) {
     }
 
@@ -53,18 +60,18 @@ public final class LightFieldModel {
                 ? shadeOpenOverride
                 : (zone.getShadeOpenPercent() != null ? zone.getShadeOpenPercent() : 100);
         double closed = 1.0 - shadeOpen / 100.0;
-        double shadeTrans = 1.0 - GreenhouseGeometry.MAX_SHADE_BLOCK * closed;
 
         double[] sunAng = GreenhouseGeometry.solarElevationAzimuth(minuteOfDay, zone.getClimateProfileId());
         double elev = sunAng[0];
         double az = sunAng[1];
         double elevFactor = GreenhouseGeometry.solarElevationFactor(elev);
+        boolean diffuse = GreenhouseGeometry.isDiffuseProfile(zone.getClimateProfileId());
 
-        // 室外 PAR 已是日变化；再乘高度角，保证夜间/低角度自然光归零或削弱
+        double shadeTrans = physicalShadeTransmittance(closed, elevFactor, diffuse);
         double sunBase = Math.max(0, outdoorPar * cover * shadeTrans * elevFactor);
 
-        boolean diffuse = GreenhouseGeometry.isDiffuseProfile(zone.getClimateProfileId());
         double measureZ = GreenhouseGeometry.measurePlaneZ(zone.getZoneId());
+        String recipeId = zone.getRecipeId();
 
         List<GhDevice> lamps = lampsEnabled
                 ? devices.stream().filter(d -> "GROW_LAMP".equals(d.getDeviceType())).toList()
@@ -95,8 +102,9 @@ public final class LightFieldModel {
                 double y = margin + (iy + 0.5) * usableW / ny;
                 double sunIn = sunBase * GreenhouseGeometry.bedSunFactor(y, diffuse, az, elev);
                 double led = lampContribution(x, y, measureZ, lamps);
+                SpectrumShares.Rgb rgb = SpectrumShares.split(sunIn, led, recipeId);
                 double ppfd = sunIn + led;
-                grid.add(new GridPoint(x, y, ppfd, sunIn, led));
+                grid.add(new GridPoint(x, y, ppfd, sunIn, led, rgb.r(), rgb.g(), rgb.b()));
                 sum += ppfd;
                 ledSum += led;
                 sunSum += sunIn;
@@ -138,7 +146,29 @@ public final class LightFieldModel {
             sunEff = sensorSun.stream().mapToDouble(d -> d).average().orElse(0);
         }
 
-        return new FieldResult(effective, sunEff, ledEff, grid, sensorPpfd, nx, ny);
+        return new FieldResult(effective, sunEff, ledEff, grid, sensorPpfd, nx, ny, shadeTrans, cover);
+    }
+
+    /**
+     * 物理遮阳：直射挡得更狠、漫射仍有漏光；雾天以漫射为主故「关遮阳」体感弱一些。
+     */
+    public static double physicalShadeTransmittance(double closed, double elevFactor, boolean diffuse) {
+        closed = Math.max(0, Math.min(1, closed));
+        double directFrac = diffuse
+                ? 0.22
+                : Math.max(0.15, Math.min(0.85, 0.25 + 0.55 * elevFactor));
+        double diffuseFrac = 1.0 - directFrac;
+        // 直射：遮阳网几乎挡死；漫射：仍有散射漏光
+        double directTrans = 1.0 - 0.97 * closed;
+        double diffuseTrans = 1.0 - 0.78 * closed;
+        return Math.max(0.04, directFrac * directTrans + diffuseFrac * diffuseTrans);
+    }
+
+    /** 给定开度估算自然光缩放（相对全开），供经济性决策 */
+    public static double naturalScaleForShadeOpen(GhZone zone, double outdoorPar, double minuteOfDay,
+                                                  int shadeOpenPercent) {
+        FieldResult f = compute(zone, List.of(), outdoorPar, minuteOfDay, shadeOpenPercent, false);
+        return f.outdoorInPpfd();
     }
 
     private static double lampContribution(double x, double y, double z, List<GhDevice> lamps) {
@@ -160,6 +190,7 @@ public final class LightFieldModel {
             double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
             double cos = dz / dist;
             double maxCanopy = GreenhouseGeometry.lampMaxPpfdAtCanopy(lamp.getDeviceSn());
+            // 逆平方：在设计高度处峰值 ≈ maxCanopy
             double peak = maxCanopy * dz * dz;
             total += peak * cos / (dist * dist) * (dim / 100.0);
         }

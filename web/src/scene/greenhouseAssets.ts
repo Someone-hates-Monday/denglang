@@ -82,7 +82,7 @@ function makeCropLabel(text: string, accentHex: string): THREE.Sprite {
   const spr = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }),
   )
-  spr.scale.set(3.2, 0.55, 1)
+  spr.scale.set(2.4, 0.42, 1)
   return spr
 }
 
