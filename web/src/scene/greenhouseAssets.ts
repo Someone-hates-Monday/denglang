@@ -2,8 +2,9 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
   BEDS,
+  BAY_SINGLE_CROP,
   CROP_META,
-  type CropKey,
+  bedHasL1Tier,
   cropLabel,
 } from './cropCatalog'
 import type { GhRecipe } from '../api/greenhouse'
@@ -16,21 +17,71 @@ export type ZoneCropInput = {
 
 export type GhAssetPack = {
   shell: THREE.Object3D | null
-  beds: Partial<Record<CropKey, THREE.Object3D | null>>
+  bed: THREE.Object3D | null
   lamp: THREE.Object3D | null
   ready: boolean
   source: 'glb' | 'none'
+  aesthetic: string
 }
 
 const BASE = '/models/cq-demo-bay'
 let cache: Promise<GhAssetPack> | null = null
 
+/** 方案 A：扁平 stylized 材质后处理 */
+function stylizeMaterial(m: THREE.Material, meshName: string) {
+  const std = m as THREE.MeshStandardMaterial & THREE.MeshPhysicalMaterial
+  if (!('roughness' in std)) return
+  const n = meshName.toLowerCase()
+  const isGlass = n.includes('cover') || n.includes('wall') || n.includes('glass') || (std.transmission ?? 0) > 0
+  const isGlow = n.includes('lamp') && n.includes('lens')
+
+  std.flatShading = true
+  if (isGlass) {
+    std.roughness = 0.12
+    std.metalness = 0
+    std.envMapIntensity = 0.35
+  } else if (isGlow) {
+    std.envMapIntensity = 0.2
+  } else {
+    std.roughness = Math.min(0.92, (std.roughness ?? 0.8) + 0.08)
+    std.metalness = (std.metalness ?? 0) * 0.65
+    std.envMapIntensity = 0.45
+  }
+}
+
 function prepare(root: THREE.Object3D) {
   root.traverse((obj) => {
-    const m = obj as THREE.Mesh
-    if (m.isMesh) {
-      m.castShadow = false
-      m.receiveShadow = true
+    const mesh = obj as THREE.Mesh
+    if (!mesh.isMesh || !mesh.material) return
+    mesh.castShadow = false
+    mesh.receiveShadow = true
+    const name = (mesh.name || obj.name || '').toLowerCase()
+    const isShell =
+      name.includes('shell') ||
+      name.includes('tunnel') ||
+      name.includes('cover') ||
+      name.includes('arch') ||
+      name.includes('end-')
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const mat of mats) {
+      stylizeMaterial(mat, name)
+      const m = mat as THREE.MeshStandardMaterial & THREE.MeshPhysicalMaterial
+      const trans = m.transmission ?? 0
+      if (m.transparent || trans > 0) {
+        m.depthWrite = false
+        if (isShell) m.side = THREE.FrontSide
+      }
+      if (isShell) {
+        mesh.renderOrder = 2
+        m.polygonOffset = true
+        m.polygonOffsetFactor = 2
+        m.polygonOffsetUnits = 2
+      } else if (name.includes('bed') || name.includes('orchid') || name.includes('pot') || name.includes('leaf')) {
+        mesh.renderOrder = 3
+        m.polygonOffset = true
+        m.polygonOffsetFactor = 1
+        m.polygonOffsetUnits = 1
+      }
     }
   })
   return root
@@ -49,16 +100,20 @@ export function loadGreenhouseAssets(): Promise<GhAssetPack> {
   if (!cache) {
     cache = (async () => {
       const loader = new GLTFLoader()
-      const [shell, dendrobium, anoectochilus, strawberry, lamp] = await Promise.all([
+      const [shell, bed, lamp] = await Promise.all([
         loadOne(loader, 'tunnel-shell.glb'),
-        loadOne(loader, CROP_META.dendrobium.glb),
-        loadOne(loader, CROP_META.anoectochilus.glb),
-        loadOne(loader, CROP_META.strawberry.glb),
+        loadOne(loader, CROP_META[BAY_SINGLE_CROP].glb),
         loadOne(loader, 'lamp-bar.glb'),
       ])
-      const beds: GhAssetPack['beds'] = { dendrobium, anoectochilus, strawberry }
-      const ready = !!(shell && dendrobium && anoectochilus && strawberry)
-      return { shell, beds, lamp, ready, source: ready ? 'glb' : 'none' }
+      const ready = !!(shell && bed)
+      return {
+        shell,
+        bed,
+        lamp,
+        ready,
+        source: ready ? 'glb' : 'none',
+        aesthetic: 'stylized-ag-tech-a',
+      }
     })()
   }
   return cache
@@ -103,21 +158,16 @@ function roundRect(
   ctx.closePath()
 }
 
-function accentCss(crop: CropKey): string {
-  const c = CROP_META[crop].color
-  return `#${c.toString(16).padStart(6, '0')}`
+function accentCss(): string {
+  return `#${CROP_META[BAY_SINGLE_CROP].color.toString(16).padStart(6, '0')}`
 }
 
-/**
- * 按各区当前配方挂载作物模型；同种作物共用同一 GLB 模板。
- * 每个床带 userData.cropBed + 不可见 hit 盒，供悬停查询。
- */
 export function placeGlbStructure(
   assets: GhAssetPack,
   parent: THREE.Group,
   zoneCrops: ZoneCropInput[],
 ): boolean {
-  if (!assets.ready || !assets.shell) return false
+  if (!assets.ready || !assets.shell || !assets.bed) return false
   const byZone = Object.fromEntries(zoneCrops.map((z) => [z.zoneId, z]))
 
   const shell = assets.shell.clone(true)
@@ -127,11 +177,13 @@ export function placeGlbStructure(
   for (const bed of BEDS) {
     const zc = byZone[bed.zoneId]
     const info = cropLabel(zc?.recipe, bed.zoneId, zc?.recipeId)
-    const template = assets.beds[info.key]
-    if (!template) return false
 
-    const unit = template.clone(true)
+    const unit = assets.bed.clone(true)
     unit.name = bed.bedId
+
+    const l1 = unit.getObjectByName('tier-l1')
+    if (l1) l1.visible = bedHasL1Tier(bed.bedId)
+
     unit.position.set(bed.x, 0, bed.z)
     unit.userData.cropBed = {
       bedId: bed.bedId,
@@ -145,7 +197,7 @@ export function placeGlbStructure(
       y0: bed.y0,
       y1: bed.y1,
     }
-    // 整床碰撞盒（本地坐标，床中心为原点）
+
     const hit = new THREE.Mesh(
       new THREE.BoxGeometry(bed.x1 - bed.x0, 1.4, bed.y1 - bed.y0),
       new THREE.MeshBasicMaterial({ visible: false }),
@@ -155,19 +207,12 @@ export function placeGlbStructure(
     hit.userData.cropBed = unit.userData.cropBed
     unit.add(hit)
 
-    const lab = makeCropLabel(`${info.nameZh} · ${bed.roleZh}`, accentCss(info.key))
-    lab.position.set(0, 2.05, 0)
+    const lab = makeCropLabel(`${info.nameZh} · ${bed.roleZh}`, accentCss())
+    lab.position.set(0, bedHasL1Tier(bed.bedId) ? 2.35 : 1.75, 0)
     lab.userData.cropBed = unit.userData.cropBed
     unit.add(lab)
 
     parent.add(unit)
-  }
-
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x6a737c, metalness: 0.4, roughness: 0.45 })
-  for (const z of [1.4, 3.5, 5.6]) {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 8), postMat)
-    post.position.set(8, 1.2, z)
-    parent.add(post)
   }
 
   return true
@@ -182,13 +227,15 @@ export function makeGlbLamp(
 ): THREE.Object3D {
   if (assets.lamp) {
     const g = assets.lamp.clone(true)
-    g.scale.setScalar(0.55)
+    g.scale.setScalar(0.58)
     g.position.set(x, z, y)
     g.traverse((obj) => {
       const m = obj as THREE.Mesh
       if (m.isMesh && m.material && !Array.isArray(m.material)) {
         const mat = (m.material as THREE.MeshStandardMaterial).clone()
-        if ('emissiveIntensity' in mat) mat.emissiveIntensity = 0.2 + dim * 1.2
+        if ('emissiveIntensity' in mat) mat.emissiveIntensity = 0.15 + dim * 1.1
+        mat.depthWrite = true
+        m.renderOrder = 4
         m.material = mat
       }
     })
@@ -197,13 +244,19 @@ export function makeGlbLamp(
   const bar = new THREE.Mesh(
     new THREE.BoxGeometry(0.35, 0.03, 0.08),
     new THREE.MeshStandardMaterial({
-      color: 0x1d1d1f,
-      emissive: 0xffcc55,
-      emissiveIntensity: 0.25 + dim * 1.35,
-      metalness: 0.5,
-      roughness: 0.35,
+      color: 0x252528,
+      emissive: 0xffe082,
+      emissiveIntensity: 0.2 + dim * 1.2,
+      metalness: 0.4,
+      roughness: 0.4,
+      flatShading: true,
     }),
   )
   bar.position.set(x, z, y)
   return bar
+}
+
+/** 重置缓存（热更新调试用） */
+export function resetGreenhouseAssetCache() {
+  cache = null
 }

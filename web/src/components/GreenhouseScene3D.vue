@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { GhEffectiveLight } from '../api/greenhouse'
 import {
   BEDS,
+  bedHasL1Tier,
   cropLabel,
   sampleBedPpfd,
   type CropKey,
@@ -16,6 +17,12 @@ import {
   type GhAssetPack,
   type ZoneCropInput,
 } from '../scene/greenhouseAssets'
+import {
+  azimuthLabelZh,
+  defaultCameraPose,
+  layoutToThree,
+  sunDirectionThree,
+} from '../scene/layoutCoords'
 import {
   HEAT_CHANNEL_LABEL,
   channelMonoColor,
@@ -60,6 +67,8 @@ let shadeClothB: THREE.Mesh | null = null
 let sunLight: THREE.DirectionalLight | null = null
 let sunArrow: THREE.ArrowHelper | null = null
 let sunDisc: THREE.Mesh | null = null
+let hemiLight: THREE.HemisphereLight | null = null
+let skyDome: THREE.Mesh | null = null
 let sunGroup: THREE.Group | null = null
 let lampGroup: THREE.Group | null = null
 let sensorGroup: THREE.Group | null = null
@@ -124,6 +133,40 @@ let cropHitRoots: THREE.Object3D[] = []
 const Z_L0 = 0.55
 const Z_L1 = 1.25
 
+/** 渲染分层，避免共面 z-fighting */
+const RENDER = {
+  GROUND: 0,
+  FLOOR: 1,
+  STRUCTURE: 2,
+  CROPS: 3,
+  SHADE: 4,
+  HEAT: 8,
+  GIZMO: 12,
+} as const
+
+function tuneMaterial(
+  mat: THREE.Material,
+  opts: { depthWrite?: boolean; polygonOffset?: number; side?: THREE.Side },
+) {
+  if (opts.depthWrite !== undefined) mat.depthWrite = opts.depthWrite
+  if (opts.side !== undefined) mat.side = opts.side
+  if (opts.polygonOffset) {
+    mat.polygonOffset = true
+    mat.polygonOffsetFactor = opts.polygonOffset
+    mat.polygonOffsetUnits = opts.polygonOffset
+  }
+}
+
+function tuneMesh(
+  mesh: THREE.Mesh,
+  renderOrder: number,
+  opts?: { depthWrite?: boolean; polygonOffset?: number },
+) {
+  mesh.renderOrder = renderOrder
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+  for (const m of mats) tuneMaterial(m, { depthWrite: opts?.depthWrite, polygonOffset: opts?.polygonOffset })
+}
+
 function zoneCropInputs(): ZoneCropInput[] {
   const zl = props.zoneLights || {}
   return (['ZONE-A', 'ZONE-B'] as const).map((zoneId) => {
@@ -136,22 +179,19 @@ function zoneCropInputs(): ZoneCropInput[] {
   })
 }
 
-function cropKeyForZone(zoneId: string): CropKey {
-  const zc = zoneCropInputs().find((z) => z.zoneId === zoneId)
-  return cropLabel(zc?.recipe, zoneId, zc?.recipeId).key
-}
-
 const sunHud = computed(() => {
   const el = props.light?.solarElevationDeg
   const az = props.light?.solarAzimuthDeg
   if (el == null || az == null) return '日光：等待仿真…'
-  const dir = az < 135 ? '偏东' : az < 225 ? '正南' : '偏西'
-  return `太阳 ${Number(el).toFixed(0)}° · ${Number(az).toFixed(0)}° ${dir}`
+  return `太阳高度 ${Number(el).toFixed(0)}° · 方位 ${Number(az).toFixed(0)}°（${azimuthLabelZh(Number(az))}，自北顺时针）`
 })
 
 const modelHud = computed(() => {
   if (assetSource.value === 'loading') return '模型：加载中…'
-  if (assetSource.value === 'glb') return '模型：GLB 资产 · cq-demo-bay'
+  if (assetSource.value === 'glb') {
+    const tag = assets?.aesthetic === 'stylized-ag-tech-a' ? '方案 A stylized' : 'GLB'
+    return `模型：${tag} · cq-demo-bay`
+  }
   return '模型：程序化回退'
 })
 
@@ -213,33 +253,230 @@ function makeShadeTexture(): THREE.CanvasTexture {
 
 function makeSoilTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas')
-  c.width = 128
-  c.height = 128
+  c.width = 256
+  c.height = 256
   const ctx = c.getContext('2d')!
-  ctx.fillStyle = '#6e7a5c'
-  ctx.fillRect(0, 0, 128, 128)
-  for (let i = 0; i < 800; i++) {
-    const g = 90 + Math.random() * 50
-    ctx.fillStyle = `rgba(${g * 0.7},${g},${g * 0.55},${0.15 + Math.random() * 0.25})`
-    ctx.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1)
+  ctx.fillStyle = '#5f7348'
+  ctx.fillRect(0, 0, 256, 256)
+  for (let i = 0; i < 900; i++) {
+    const x = (i * 47) % 256
+    const y = (i * 91) % 256
+    const g = 70 + ((i * 13) % 50)
+    ctx.fillStyle = `rgb(${50 + (i % 30)},${g},${40 + (i % 20)})`
+    ctx.fillRect(x, y, 2 + (i % 3), 2 + (i % 2))
   }
   const tex = new THREE.CanvasTexture(c)
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(8, 5)
+  tex.repeat.set(18, 12)
+  tex.colorSpace = THREE.SRGBColorSpace
   return tex
+}
+
+function makeSkyTexture(elev = 45): THREE.CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = 4
+  c.height = 256
+  const ctx = c.getContext('2d')!
+  const g = ctx.createLinearGradient(0, 0, 0, 256)
+  if (elev < 2) {
+    g.addColorStop(0, '#0b1220')
+    g.addColorStop(0.55, '#1a2740')
+    g.addColorStop(1, '#3a4050')
+  } else if (elev < 18) {
+    g.addColorStop(0, '#6a8ec8')
+    g.addColorStop(0.45, '#f0b070')
+    g.addColorStop(1, '#f5d5a8')
+  } else {
+    g.addColorStop(0, '#6eb0e8')
+    g.addColorStop(0.55, '#b8d8f0')
+    g.addColorStop(1, '#e8f2dc')
+  }
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 4, 256)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+function rnd(seed: number) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453
+  return x - Math.floor(x)
+}
+
+/** 棚外地景：碎石垫、罗盘、杂草灌木与远树（纯视觉，不进控制） */
+function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
+  const gravelMat = new THREE.MeshStandardMaterial({
+    color: 0x9a9488,
+    roughness: 0.96,
+    flatShading: true,
+  })
+  const dirtMat = new THREE.MeshStandardMaterial({
+    color: 0x6e5a42,
+    roughness: 0.97,
+    flatShading: true,
+  })
+  const grassA = new THREE.MeshStandardMaterial({
+    color: 0x52b86a,
+    roughness: 0.88,
+    flatShading: true,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
+  })
+  const grassB = new THREE.MeshStandardMaterial({
+    color: 0x3d9a58,
+    roughness: 0.9,
+    flatShading: true,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
+  })
+  const grassC = new THREE.MeshStandardMaterial({
+    color: 0x2f7a48,
+    roughness: 0.88,
+    flatShading: true,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
+  })
+  const weedMat = new THREE.MeshStandardMaterial({ color: 0x3d7a40, roughness: 0.82, flatShading: true })
+  const shrubMat = new THREE.MeshStandardMaterial({ color: 0x355c30, roughness: 0.78, flatShading: true })
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b5344, roughness: 0.92, flatShading: true })
+  const canopyMat = new THREE.MeshStandardMaterial({ color: 0x3d9a58, roughness: 0.72, flatShading: true })
+  const flowerMat = new THREE.MeshStandardMaterial({ color: 0xd4a018, roughness: 0.55, flatShading: true })
+
+  // 外圈碎石框（不铺进棚内，避免与 GLB/过道地面共面闪烁）
+  const apron = 2.0
+  const gravelH = 0.012
+  const gravelY = -0.004
+  for (const [cx, cz, gw, gd] of [
+    [L / 2, -apron / 2, L + apron * 2, apron],
+    [L / 2, W + apron / 2, L + apron * 2, apron],
+    [-apron / 2, W / 2, apron, W + apron * 2],
+    [L + apron / 2, W / 2, apron, W + apron * 2],
+  ] as const) {
+    const g = new THREE.Mesh(new THREE.BoxGeometry(gw, gravelH, gd), gravelMat)
+    g.position.set(cx, gravelY, cz)
+    tuneMesh(g, RENDER.GROUND)
+    group.add(g)
+  }
+
+  const path = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.012, 6.5), dirtMat)
+  path.position.set(L / 2, 0.008, -2.8)
+  tuneMesh(path, RENDER.FLOOR, { polygonOffset: 1 })
+  group.add(path)
+
+  for (const [t, px, pz, sx] of [
+    ['北', L / 2, W + 2.2, 2.2],
+    ['南', L / 2, -2.2, 2.2],
+    ['西', -2.2, W / 2, 2.2],
+    ['东', L + 2.2, W / 2, 2.2],
+  ] as const) {
+    const s = makeLabelSprite(t, sx)
+    s.position.set(px, 0.56, pz)
+    group.add(s)
+  }
+
+  for (let i = 0; i < 14; i++) {
+    const side = i % 4
+    let x = 0
+    let z = 0
+    if (side === 0) {
+      x = rnd(i * 3) * (L + 10) - 5
+      z = -2.5 - rnd(i * 5) * 6
+    } else if (side === 1) {
+      x = rnd(i * 7) * (L + 10) - 5
+      z = W + 2 + rnd(i * 9) * 5
+    } else if (side === 2) {
+      x = -3 - rnd(i * 11) * 5
+      z = rnd(i * 13) * (W + 6) - 2
+    } else {
+      x = L + 3 + rnd(i * 17) * 5
+      z = rnd(i * 19) * (W + 6) - 2
+    }
+    const patch = new THREE.Mesh(
+      new THREE.CircleGeometry(1.2 + rnd(i) * 1.8, 10),
+      i % 3 === 0 ? grassA : i % 3 === 1 ? grassB : grassC,
+    )
+    patch.rotation.x = -Math.PI / 2
+    patch.position.set(x, 0.014 + rnd(i * 2) * 0.006, z)
+    tuneMesh(patch, RENDER.FLOOR, { polygonOffset: 2 })
+    group.add(patch)
+  }
+
+  for (let i = 0; i < 70; i++) {
+    const edge = i % 4
+    let x = 0
+    let z = 0
+    if (edge === 0) {
+      x = rnd(i * 3) * (L + 6) - 3
+      z = -1.4 - rnd(i * 5) * 5
+    } else if (edge === 1) {
+      x = rnd(i * 7) * (L + 6) - 3
+      z = W + 1.4 + rnd(i * 9) * 4.5
+    } else if (edge === 2) {
+      x = -1.5 - rnd(i * 11) * 4
+      z = rnd(i * 13) * (W + 4) - 1
+    } else {
+      x = L + 1.5 + rnd(i * 17) * 4
+      z = rnd(i * 19) * (W + 4) - 1
+    }
+    const h = 0.18 + rnd(i * 6) * 0.35
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.04 + rnd(i) * 0.05, h, 5), i % 4 ? weedMat : grassB)
+    blade.position.set(x, h / 2, z)
+    blade.rotation.z = (rnd(i + 2) - 0.5) * 0.35
+    blade.rotation.x = (rnd(i + 3) - 0.5) * 0.25
+    group.add(blade)
+    if (i % 5 === 0) {
+      const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), flowerMat)
+      bloom.position.set(x, h + 0.02, z)
+      group.add(bloom)
+    }
+  }
+
+  for (let i = 0; i < 12; i++) {
+    const x = i < 6 ? -2.5 - rnd(i) * 2.5 : L + 2.5 + rnd(i) * 2.5
+    const z = 0.5 + rnd(i * 8) * (W + 2)
+    const bush = new THREE.Mesh(new THREE.SphereGeometry(0.45 + rnd(i) * 0.35, 8, 6), shrubMat)
+    bush.scale.set(1.2, 0.7 + rnd(i * 2) * 0.4, 1.0)
+    bush.position.set(x, 0.35, z)
+    group.add(bush)
+  }
+
+  for (let i = 0; i < 9; i++) {
+    const x = -8 + i * 4.2 + rnd(i) * 1.5
+    const z = W + 7 + rnd(i * 2) * 3
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 1.6 + rnd(i) * 1.2, 6), trunkMat)
+    trunk.position.set(x, 0.9, z)
+    group.add(trunk)
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.9 + rnd(i) * 0.5, 8, 6), canopyMat)
+    crown.position.set(x, 2.1 + rnd(i) * 0.4, z)
+    crown.scale.set(1.2, 0.9, 1.1)
+    group.add(crown)
+  }
+
+  for (let i = 0; i < 10; i++) {
+    const x = 1 + i * 1.55
+    if (x > L - 1) continue
+    const hedge = new THREE.Mesh(new THREE.SphereGeometry(0.35, 7, 5), shrubMat)
+    hedge.scale.set(1.4, 0.55, 0.8)
+    hedge.position.set(x, 0.28, -1.35)
+    group.add(hedge)
+  }
 }
 
 function buildScene(el: HTMLDivElement) {
   const w = el.clientWidth || 800
   const h = el.clientHeight || 460
   scene = new THREE.Scene()
-  scene.background = new THREE.Color(0xd8dde3)
-  scene.fog = new THREE.Fog(0xd8dde3, 28, 70)
+  scene.background = new THREE.Color(0xb8d4e8)
+  scene.fog = new THREE.Fog(0xb8d4e8, 28, 70)
 
-  camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 140)
-  camera.position.set(18, 10, -10)
+  camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 160)
+  const cam0 = defaultCameraPose(16, 7, 3.8)
+  camera.position.copy(cam0.position)
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, logarithmicDepthBuffer: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setSize(w, h)
   renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -252,24 +489,52 @@ function buildScene(el: HTMLDivElement) {
   controls.enableDamping = true
   controls.dampingFactor = 0.06
   controls.enableZoom = false
-  controls.target.set(8, 1.2, 3.5)
+  controls.target.copy(cam0.target)
   controls.maxPolarAngle = Math.PI * 0.48
   controls.minDistance = 6
-  controls.maxDistance = 42
+  controls.maxDistance = 55
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.42))
-  sunLight = new THREE.DirectionalLight(0xfff2d6, 1.15)
+  scene.add(new THREE.AmbientLight(0xfff6e8, 0.28))
+  sunLight = new THREE.DirectionalLight(0xfff1c8, 1.15)
   sunLight.position.set(4, 16, -14)
   scene.add(sunLight)
-  scene.add(new THREE.HemisphereLight(0xeef3f8, 0x6a7560, 0.4))
+  hemiLight = new THREE.HemisphereLight(0xe8f4ff, 0x5a7a48, 0.48)
+  scene.add(hemiLight)
+
+  skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(80, 24, 16),
+    new THREE.MeshBasicMaterial({ map: makeSkyTexture(45), side: THREE.BackSide, depthWrite: false }),
+  )
+  skyDome.renderOrder = -10
+  scene.add(skyDome)
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(56, 36),
+    new THREE.PlaneGeometry(90, 70),
     new THREE.MeshStandardMaterial({ map: makeSoilTexture(), roughness: 0.95, metalness: 0 }),
   )
   ground.rotation.x = -Math.PI / 2
-  ground.position.y = -0.01
+  ground.position.y = -0.03
+  ground.renderOrder = RENDER.GROUND
   scene.add(ground)
+
+  sunDisc = new THREE.Mesh(
+    new THREE.SphereGeometry(1.15, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffe08a, fog: false, depthTest: false }),
+  )
+  const sunGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(1.85, 16, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0xffc857,
+      transparent: true,
+      opacity: 0.28,
+      fog: false,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  )
+  sunDisc.add(sunGlow)
+  sunDisc.renderOrder = RENDER.GIZMO
+  scene.add(sunDisc)
 
   lampGroup = new THREE.Group()
   sensorGroup = new THREE.Group()
@@ -371,32 +636,26 @@ function addTunnelSkin(group: THREE.Group, L: number, W: number, G: number, H: n
       thickness: 0.35,
       roughness: 0.22,
       metalness: 0,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     }),
   )
+  skin.renderOrder = RENDER.STRUCTURE
   group.add(skin)
 }
 
-function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number }, group: THREE.Group) {
+function addL1Rack(bed: { x0: number; x1: number; y0: number; y1: number }, group: THREE.Group) {
   const bedMat = new THREE.MeshStandardMaterial({ color: 0x4a4036, roughness: 0.88 })
   const legMat = new THREE.MeshStandardMaterial({ color: 0x3a3f3c, metalness: 0.45, roughness: 0.4 })
-  const potMat = new THREE.MeshStandardMaterial({ color: 0x6b4e3a, roughness: 0.82 })
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x3f8a58, roughness: 0.55 })
-  const leafDark = new THREE.MeshStandardMaterial({ color: 0x2d6a44, roughness: 0.6 })
   const trayMat = new THREE.MeshStandardMaterial({ color: 0xc5d8cc, roughness: 0.7 })
   const bw = bed.x1 - bed.x0
   const bd = bed.y1 - bed.y0
   const cx = (bed.x0 + bed.x1) / 2
   const cz = (bed.y0 + bed.y1) / 2
-
-  const deck0 = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.06, bd), bedMat)
-  deck0.position.set(cx, Z_L0, cz)
-  group.add(deck0)
-
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.04, 0.04, 0.04), legMat)
-  rail.position.set(cx, Z_L0 + 0.05, bed.y0 + 0.02)
-  group.add(rail)
 
   for (const [ox, oz] of [
     [-bw / 2 + 0.08, -bd / 2 + 0.08],
@@ -407,6 +666,57 @@ function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number }
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, Z_L1, 8), legMat)
     leg.position.set(cx + ox, Z_L1 / 2, cz + oz)
     group.add(leg)
+  }
+
+  const deck1 = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.18, 0.045, bd - 0.1), bedMat)
+  deck1.position.set(cx, Z_L1, cz)
+  group.add(deck1)
+  for (let i = 0; i < 9; i++) {
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.26), trayMat)
+    tray.position.set(bed.x0 + 0.55 + i * 0.72, Z_L1 + 0.05, cz)
+    group.add(tray)
+    for (let k = 0; k < 3; k++) {
+      const sprout = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), leafMat)
+      sprout.position.set(bed.x0 + 0.45 + i * 0.72 + k * 0.1, Z_L1 + 0.11, cz + (k - 1) * 0.05)
+      group.add(sprout)
+    }
+  }
+  const l1Tag = makeLabelSprite('L1 组培/炼苗', 2.4)
+  l1Tag.position.set(cx, Z_L1 + 0.55, cz)
+  group.add(l1Tag)
+}
+
+function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number; bedId?: string }, group: THREE.Group) {
+  const bedMat = new THREE.MeshStandardMaterial({ color: 0x4a4036, roughness: 0.88 })
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x3a3f3c, metalness: 0.45, roughness: 0.4 })
+  const potMat = new THREE.MeshStandardMaterial({ color: 0x6b4e3a, roughness: 0.82 })
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x3f8a58, roughness: 0.55 })
+  const leafDark = new THREE.MeshStandardMaterial({ color: 0x2d6a44, roughness: 0.6 })
+  const bw = bed.x1 - bed.x0
+  const bd = bed.y1 - bed.y0
+  const cx = (bed.x0 + bed.x1) / 2
+  const cz = (bed.y0 + bed.y1) / 2
+  const withL1 = bed.bedId ? bedHasL1Tier(bed.bedId) : false
+
+  const deck0 = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.06, bd), bedMat)
+  deck0.position.set(cx, Z_L0, cz)
+  group.add(deck0)
+
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.04, 0.04, 0.04), legMat)
+  rail.position.set(cx, Z_L0 + 0.05, bed.y0 + 0.02)
+  group.add(rail)
+
+  if (!withL1) {
+    for (const [ox, oz] of [
+      [-bw / 2 + 0.08, -bd / 2 + 0.08],
+      [bw / 2 - 0.08, -bd / 2 + 0.08],
+      [-bw / 2 + 0.08, bd / 2 - 0.08],
+      [bw / 2 - 0.08, bd / 2 - 0.08],
+    ] as const) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, Z_L0, 8), legMat)
+      leg.position.set(cx + ox, Z_L0 / 2, cz + oz)
+      group.add(leg)
+    }
   }
 
   for (let x = bed.x0 + 0.28; x < bed.x1 - 0.15; x += 0.38) {
@@ -423,114 +733,7 @@ function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number }
     }
   }
 
-  const deck1 = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.18, 0.045, bd - 0.1), bedMat)
-  deck1.position.set(cx, Z_L1, cz)
-  group.add(deck1)
-  for (let i = 0; i < 9; i++) {
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.26), trayMat)
-    tray.position.set(bed.x0 + 0.55 + i * 0.72, Z_L1 + 0.05, cz)
-    group.add(tray)
-    for (let k = 0; k < 3; k++) {
-      const sprout = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), leafMat)
-      sprout.position.set(bed.x0 + 0.45 + i * 0.72 + k * 0.1, Z_L1 + 0.11, cz + (k - 1) * 0.05)
-      group.add(sprout)
-    }
-  }
-}
-
-function addMatBed(bed: { x0: number; x1: number; y0: number; y1: number }, group: THREE.Group) {
-  const bedMat = new THREE.MeshStandardMaterial({ color: 0x4a4036, roughness: 0.88 })
-  const soilMat = new THREE.MeshStandardMaterial({ color: 0x3d4f38, roughness: 0.9 })
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x3d9a5c, roughness: 0.5 })
-  const leafDark = new THREE.MeshStandardMaterial({ color: 0x2a7044, roughness: 0.55 })
-  const berryMat = new THREE.MeshStandardMaterial({ color: 0xd94a4a, roughness: 0.45, emissive: 0x401010, emissiveIntensity: 0.15 })
-  const legMat = new THREE.MeshStandardMaterial({ color: 0x3a3f3c, metalness: 0.45, roughness: 0.4 })
-  const bw = bed.x1 - bed.x0
-  const bd = bed.y1 - bed.y0
-  const cx = (bed.x0 + bed.x1) / 2
-  const cz = (bed.y0 + bed.y1) / 2
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.08, bd), bedMat)
-  deck.position.set(cx, Z_L0, cz)
-  group.add(deck)
-  for (const [ox, oz] of [
-    [-bw / 2 + 0.08, -bd / 2 + 0.08],
-    [bw / 2 - 0.08, -bd / 2 + 0.08],
-    [-bw / 2 + 0.08, bd / 2 - 0.08],
-    [bw / 2 - 0.08, bd / 2 - 0.08],
-  ] as const) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, Z_L0, 8), legMat)
-    leg.position.set(cx + ox, Z_L0 / 2, cz + oz)
-    group.add(leg)
-  }
-  // 栽培槽（金线莲密植 / 草莓高架槽观感）
-  const trough = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.1, 0.14, bd - 0.08), soilMat)
-  trough.position.set(cx, Z_L0 + 0.1, cz)
-  group.add(trough)
-  let n = 0
-  for (let x = bed.x0 + 0.25; x < bed.x1 - 0.15; x += 0.28) {
-    for (let z = bed.y0 + 0.16; z < bed.y1 - 0.12; z += 0.2) {
-      n++
-      const h = 0.14 + (n % 5) * 0.02
-      const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.07, h, 7), n % 2 ? leafMat : leafDark)
-      tuft.position.set(x, Z_L0 + 0.18 + h / 2, z)
-      tuft.rotation.y = (n * 0.7) % 2
-      group.add(tuft)
-      if (n % 4 === 0) {
-        const berry = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), berryMat)
-        berry.position.set(x + 0.04, Z_L0 + 0.22 + h * 0.4, z)
-        group.add(berry)
-      }
-    }
-  }
-}
-
-function addAnoectochilusBed(bed: { x0: number; x1: number; y0: number; y1: number }, group: THREE.Group) {
-  const bedMat = new THREE.MeshStandardMaterial({ color: 0x3d3830, roughness: 0.9 })
-  const mossMat = new THREE.MeshStandardMaterial({ color: 0x1e4a32, roughness: 0.92 })
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x2a6b45, roughness: 0.55 })
-  const veinMat = new THREE.MeshStandardMaterial({
-    color: 0xc9a227,
-    emissive: 0x8a7010,
-    emissiveIntensity: 0.2,
-    roughness: 0.4,
-  })
-  const legMat = new THREE.MeshStandardMaterial({ color: 0x3a3f3c, metalness: 0.45, roughness: 0.4 })
-  const bw = bed.x1 - bed.x0
-  const bd = bed.y1 - bed.y0
-  const cx = (bed.x0 + bed.x1) / 2
-  const cz = (bed.y0 + bed.y1) / 2
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.07, bd), bedMat)
-  deck.position.set(cx, Z_L0, cz)
-  group.add(deck)
-  for (const [ox, oz] of [
-    [-bw / 2 + 0.08, -bd / 2 + 0.08],
-    [bw / 2 - 0.08, -bd / 2 + 0.08],
-    [-bw / 2 + 0.08, bd / 2 - 0.08],
-    [bw / 2 - 0.08, bd / 2 - 0.08],
-  ] as const) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, Z_L0, 8), legMat)
-    leg.position.set(cx + ox, Z_L0 / 2, cz + oz)
-    group.add(leg)
-  }
-  const pad = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.1, 0.05, bd - 0.08), mossMat)
-  pad.position.set(cx, Z_L0 + 0.06, cz)
-  group.add(pad)
-  let n = 0
-  for (let x = bed.x0 + 0.22; x < bed.x1 - 0.15; x += 0.22) {
-    for (let z = bed.y0 + 0.14; z < bed.y1 - 0.1; z += 0.16) {
-      n++
-      const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), leafMat)
-      leaf.scale.set(1.2, 0.35, 0.9)
-      leaf.position.set(x, Z_L0 + 0.12, z)
-      group.add(leaf)
-      if (n % 3 === 0) {
-        const vein = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.01, 0.015), veinMat)
-        vein.position.set(x, Z_L0 + 0.14, z)
-        vein.rotation.y = (n * 0.4) % 1.5
-        group.add(vein)
-      }
-    }
-  }
+  if (withL1) addL1Rack(bed, group)
 }
 
 function attachCropHit(
@@ -632,27 +835,42 @@ function rebuildStructure(light: GhEffectiveLight) {
     })
   }
 
-  const nameA = cropLabel(crops.find((c) => c.zoneId === 'ZONE-A')?.recipe, 'ZONE-A', crops.find((c) => c.zoneId === 'ZONE-A')?.recipeId).nameZh
-  const nameB = cropLabel(crops.find((c) => c.zoneId === 'ZONE-B')?.recipe, 'ZONE-B', crops.find((c) => c.zoneId === 'ZONE-B')?.recipeId).nameZh
+  addSiteEnvironment(L, W, group)
 
-  // 仅地面色带 + 南向提示，避免与床标签/HUD 叠字
-  const strip = (x: number, color: number) => {
+  const zoneA = crops.find((c) => c.zoneId === 'ZONE-A')
+  const infoA = cropLabel(zoneA?.recipe, 'ZONE-A', zoneA?.recipeId)
+  const stage = infoA.stage
+
+  const strip = (x: number) => {
     const m = new THREE.Mesh(
-      new THREE.BoxGeometry(6.8, 0.03, 0.28),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.2 }),
+      new THREE.BoxGeometry(6.8, 0.02, 0.28),
+      new THREE.MeshStandardMaterial({
+        color: 0x34c759,
+        emissive: 0x34c759,
+        emissiveIntensity: 0.2,
+      }),
     )
-    m.position.set(x, 0.03, 0.4)
+    m.position.set(x, 0.048, 0.4)
+    tuneMesh(m, RENDER.FLOOR, { polygonOffset: 1 })
     group.add(m)
   }
-  strip(4, 0x34c759)
-  strip(12, cropKeyForZone('ZONE-B') === 'strawberry' ? 0xff3b30 : 0x0071e3)
-  const south = makeLabelSprite(`南 · A ${nameA} ｜ B ${nameB}`, 4.2)
+  strip(4)
+  strip(12)
+  const south = makeLabelSprite(`南 · 采光 · 整跨 ${infoA.nameZh}${stage && stage !== '—' ? ` · ${stage}` : ''}`, 5.2)
   south.position.set(L / 2, 0.5, -0.7)
   group.add(south)
 
+  const westA = makeLabelSprite('西半跨', 2.2)
+  westA.position.set(-1.3, 1.85, W / 2)
+  group.add(westA)
+  const eastB = makeLabelSprite('东半跨', 2.2)
+  eastB.position.set(L + 1.3, 1.85, W / 2)
+  group.add(eastB)
+
   scene.add(group)
-  controls!.target.set(L / 2, 1.15, W / 2)
-  camera?.position.set(L * 1.05, H * 1.85, -W * 1.15)
+  const cam = defaultCameraPose(L, W, H)
+  controls!.target.copy(cam.target)
+  camera?.position.copy(cam.position)
 }
 
 function buildProceduralStructure(
@@ -691,10 +909,11 @@ function buildProceduralStructure(
     roughness: 0.2,
     side: THREE.DoubleSide,
   })
-  for (const x of [0.05, L - 0.05]) {
+  for (const x of [0.12, L - 0.12]) {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.96, G * 0.92), endMat)
     wall.position.set(x, G * 0.46, W / 2)
     wall.rotation.y = Math.PI / 2
+    tuneMesh(wall, RENDER.STRUCTURE, { depthWrite: false })
     group.add(wall)
   }
   const door = new THREE.Mesh(
@@ -707,9 +926,7 @@ function buildProceduralStructure(
   for (const bed of BEDS) {
     const zc = crops.find((c) => c.zoneId === bed.zoneId)
     const info = cropLabel(zc?.recipe, bed.zoneId, zc?.recipeId)
-    if (info.key === 'dendrobium') addStackedCrops(bed, group)
-    else if (info.key === 'strawberry') addMatBed(bed, group)
-    else addAnoectochilusBed(bed, group)
+    addStackedCrops(bed, group)
     attachCropHit(group, bed, info)
   }
 
@@ -721,30 +938,12 @@ function buildProceduralStructure(
   }
 
   const aisle = new THREE.Mesh(
-    new THREE.BoxGeometry(0.95, 0.025, W * 0.88),
+    new THREE.BoxGeometry(0.95, 0.04, W * 0.88),
     new THREE.MeshStandardMaterial({ color: 0x9aa394, roughness: 0.9 }),
   )
-  aisle.position.set(8, 0.015, W / 2)
+  aisle.position.set(8, 0.028, W / 2)
+  tuneMesh(aisle, RENDER.FLOOR, { polygonOffset: 1 })
   group.add(aisle)
-
-  const tintA = new THREE.Mesh(
-    new THREE.PlaneGeometry(7, W * 0.9),
-    new THREE.MeshBasicMaterial({ color: 0x7eb89a, transparent: true, opacity: 0.08 }),
-  )
-  tintA.rotation.x = -Math.PI / 2
-  tintA.position.set(4, 0.02, W / 2)
-  group.add(tintA)
-  const tintB = new THREE.Mesh(
-    new THREE.PlaneGeometry(7, W * 0.9),
-    new THREE.MeshBasicMaterial({
-      color: cropKeyForZone('ZONE-B') === 'strawberry' ? 0xc87a7a : 0x7a9ec8,
-      transparent: true,
-      opacity: 0.08,
-    }),
-  )
-  tintB.rotation.x = -Math.PI / 2
-  tintB.position.set(12, 0.02, W / 2)
-  group.add(tintB)
 }
 
 function updateSun(light: GhEffectiveLight) {
@@ -754,47 +953,61 @@ function updateSun(light: GhEffectiveLight) {
     scene.remove(sunArrow)
     sunArrow = null
   }
-  if (sunDisc) {
-    scene.remove(sunDisc)
-    sunDisc.geometry.dispose()
-    ;(sunDisc.material as THREE.Material).dispose()
-    sunDisc = null
-  }
 
   const elev = Number(light.solarElevationDeg ?? 0)
   const az = Number(light.solarAzimuthDeg ?? 180)
   const L = Number(light.lengthM) || 16
   const W = Number(light.widthM) || 7
-  const elevR = (elev * Math.PI) / 180
-  const azR = (az * Math.PI) / 180
-  // 从棚中心指向太阳的单位向量（北顺时针方位 + 高度角）
-  const toSunX = Math.sin(azR) * Math.cos(elevR)
-  const toSunY = Math.sin(elevR)
-  const toSunZ = Math.cos(azR) * Math.cos(elevR)
-  const dist = 18
-  const cx = L / 2
-  const cz = W / 2
-  // DirectionalLight：光线从 position 射向 target——太阳应在 toSun 一侧（此前误用了反向）
-  sunLight.position.set(cx + toSunX * dist, Math.max(1.2, toSunY * dist), cz + toSunZ * dist)
-  sunLight.target.position.set(cx, 0.9, cz)
+
+  const sm = light.sunModel as { dirEast?: number; dirNorth?: number; dirUp?: number } | undefined
+  const towardSun =
+    sm?.dirEast != null && sm?.dirNorth != null && sm?.dirUp != null
+      ? new THREE.Vector3(sm.dirEast, sm.dirUp, sm.dirNorth).normalize()
+      : sunDirectionThree(az, elev)
+  const rayDir = towardSun.clone().negate()
+  const center = layoutToThree(L / 2, W / 2, 1.2)
+  const dist = 22
+  const sunPos = center.clone().addScaledVector(towardSun, dist)
+
+  sunLight.position.copy(sunPos)
+  sunLight.target.position.copy(center)
   if (!sunLight.target.parent) scene.add(sunLight.target)
-  sunLight.intensity = elev > 2 ? 0.45 + (elev / 90) * 1.15 : 0.06
-  sunLight.color.set(elev > 15 ? 0xfff1c8 : 0xb8c4d8)
+  sunLight.target.updateMatrixWorld()
+  sunLight.intensity = elev > 2 ? 0.4 + (elev / 90) * 1.25 : 0.06
+  sunLight.color.set(elev > 15 ? 0xfff1c8 : elev > 2 ? 0xffc090 : 0x8899bb)
+
+  if (hemiLight) {
+    hemiLight.intensity = elev > 2 ? 0.38 + (elev / 90) * 0.22 : 0.16
+    hemiLight.color.set(elev > 15 ? 0xe8f4ff : elev > 2 ? 0xffd8b0 : 0x1a2740)
+    hemiLight.groundColor.set(elev > 2 ? 0x5a7a48 : 0x2a3030)
+  }
+
+  if (skyDome) {
+    const mat = skyDome.material as THREE.MeshBasicMaterial
+    mat.map?.dispose()
+    mat.map = makeSkyTexture(elev)
+    mat.needsUpdate = true
+  }
+  const fogCol = elev < 2 ? 0x1a2740 : elev < 18 ? 0xf0c8a0 : 0xb8d4e8
+  scene.background = new THREE.Color(fogCol)
+  if (scene.fog instanceof THREE.Fog) scene.fog.color.set(fogCol)
+
+  if (sunDisc) {
+    sunDisc.visible = elev > -3
+    sunDisc.position.copy(sunPos)
+    sunDisc.scale.setScalar(elev > 2 ? 1 : 0.7)
+    ;(sunDisc.material as THREE.MeshBasicMaterial).color.set(
+      elev > 20 ? 0xfff0a8 : elev > 5 ? 0xffb060 : 0xff8060,
+    )
+  }
 
   if (elev > 1) {
-    const sunPos = new THREE.Vector3(cx + toSunX * 12, Math.max(2, toSunY * 12), cz + toSunZ * 12)
-    // 箭头表示光线传播方向：太阳 → 冠层
-    const rayDir = new THREE.Vector3(-toSunX, -toSunY, -toSunZ).normalize()
-    sunArrow = new THREE.ArrowHelper(rayDir, sunPos, 8, 0xffb020, 0.5, 0.32)
+    const arrowLen = 8
+    const arrowOrigin = sunPos.clone().addScaledVector(rayDir, 2.2)
+    sunArrow = new THREE.ArrowHelper(rayDir, arrowOrigin, arrowLen, 0xffcc44, 0.5, 0.32)
     scene.add(sunArrow)
-    sunDisc = new THREE.Mesh(
-      new THREE.SphereGeometry(0.35, 16, 16),
-      new THREE.MeshBasicMaterial({ color: 0xffcc44 }),
-    )
-    sunDisc.position.copy(sunPos)
-    scene.add(sunDisc)
-    const lab = makeLabelSprite(`日光入射 ${elev.toFixed(0)}°`, 3.0)
-    lab.position.copy(sunPos).add(new THREE.Vector3(0, 0.7, 0))
+    const lab = makeLabelSprite(`日光 ${elev.toFixed(0)}° · ${azimuthLabelZh(az)}`, 3.2)
+    lab.position.copy(arrowOrigin).addScaledVector(rayDir, arrowLen * 0.55).add(new THREE.Vector3(0, 0.7, 0))
     sunGroup.add(lab)
   }
 }
@@ -810,16 +1023,20 @@ function updateShadeRoll(mesh: THREE.Mesh | null, xCenter: number, span: number,
         opacity: 0.55,
         side: THREE.DoubleSide,
         depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       }),
     )
     mesh.rotation.x = -Math.PI / 2
+    mesh.renderOrder = RENDER.SHADE
     scene.add(mesh)
   }
   const depth = Math.max(0.12, W * 0.88 * Math.max(0.05, closed))
   mesh.scale.set(1, 1, Math.max(0.05, closed))
-  mesh.position.set(xCenter, 3.4, W - 0.12 - depth / 2)
-  // 遮阳越关越不透明，肉眼能看出「挡光」
-  ;(mesh.material as THREE.MeshStandardMaterial).opacity = 0.15 + closed * 0.75
+  mesh.position.set(xCenter, 3.42, W - 0.15 - depth / 2)
+  ;(mesh.material as THREE.MeshStandardMaterial).opacity = 0.2 + closed * 0.55
+  mesh.renderOrder = RENDER.SHADE
   return mesh
 }
 
@@ -1002,6 +1219,7 @@ function makeHeatLayer(
   geo: THREE.BufferGeometry,
   opacity: number,
   renderOrder: number,
+  liftY = 0,
 ): THREE.Mesh {
   const mesh = new THREE.Mesh(
     geo,
@@ -1011,30 +1229,15 @@ function makeHeatLayer(
       opacity,
       side: THREE.DoubleSide,
       depthWrite: false,
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
     }),
   )
   mesh.renderOrder = renderOrder
+  if (liftY) mesh.position.y = liftY
   return mesh
-}
-
-function makeSensorLabel(text: string): THREE.Sprite {
-  const canvas = document.createElement('canvas')
-  canvas.width = 256
-  canvas.height = 72
-  const ctx = canvas.getContext('2d')!
-  ctx.clearRect(0, 0, 256, 72)
-  ctx.fillStyle = 'rgba(29,29,31,0.82)'
-  roundRect(ctx, 8, 8, 240, 56, 10)
-  ctx.fill()
-  ctx.fillStyle = '#34c759'
-  ctx.font = '700 22px ui-monospace, monospace'
-  ctx.textAlign = 'center'
-  ctx.fillText(text, 128, 44)
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }),
-  )
-  spr.scale.set(1.4, 0.4, 1)
-  return spr
 }
 
 function updateHeatmap(light: GhEffectiveLight) {
@@ -1092,17 +1295,22 @@ function updateHeatmap(light: GhEffectiveLight) {
       if (ch === 'viridis') return viridisColor(field.bright[i], chRef)
       return xrayColor(field.bright[i], chRef)
     })
-    heatMesh = makeHeatLayer(geo, 0.84, 5)
+    heatMesh = makeHeatLayer(geo, 0.84, RENDER.HEAT, 0.012)
     scene.add(heatMesh)
 
     const edge = new THREE.EdgesGeometry(new THREE.PlaneGeometry(L * 0.98, W * 0.95))
     sliceGhost = new THREE.LineSegments(
       edge,
-      new THREE.LineBasicMaterial({ color: 0xa8d4ff, transparent: true, opacity: 0.55 }),
+      new THREE.LineBasicMaterial({
+        color: 0xa8d4ff,
+        transparent: true,
+        opacity: 0.55,
+        depthTest: false,
+      }),
     )
     sliceGhost.rotation.x = -Math.PI / 2
-    sliceGhost.position.set(L / 2, z + 0.002, W / 2)
-    sliceGhost.renderOrder = 6
+    sliceGhost.position.set(L / 2, z + 0.018, W / 2)
+    sliceGhost.renderOrder = RENDER.GIZMO
     scene.add(sliceGhost)
   }
 
@@ -1409,7 +1617,8 @@ watch(
     </div>
     <aside class="hud">
       <p class="sun">{{ sunHud }}</p>
-      <p class="model">{{ sliceHud }}</p>
+      <p class="model">{{ modelHud }} · {{ sliceHud }}</p>
+      <p class="hint">面北视角：西左东右 · 南为采光侧；日光矢量与仿真 sunModel 同步</p>
       <p v-if="shadeWarn" class="warn">{{ shadeWarn }}</p>
       <label class="slice-slider">
         <span>切片高度</span>

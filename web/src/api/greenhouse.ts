@@ -90,8 +90,14 @@ export type DaySeriesPoint = {
   /** 动态瞬时目标带 */
   targetPpfdMin?: number
   targetPpfdMax?: number
+  targetMid?: number
+  gapPpfd?: number
   vpdKpa?: number
   dliSoFar?: number
+  /** 分床平均 PAR（日曲线采样） */
+  bedPpfd?: Record<string, number>
+  /** 各 PAR 测点（日曲线采样） */
+  sensorPpfd?: Record<string, number>
 }
 
 /** 配方基带经光周期 / VPD / DLI 追赶后的此刻目标 */
