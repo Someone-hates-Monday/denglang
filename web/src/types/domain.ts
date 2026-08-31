@@ -1,9 +1,6 @@
-export type Role = 'MUNICIPAL_STAFF' | 'ADMIN'
-
-export const ROLE_LABEL: Record<Role, string> = {
-  MUNICIPAL_STAFF: '种植员',
-  ADMIN: '场务管理员',
-}
+export type { Role } from '../auth/rbac'
+export { ROLE_LABEL, normalizeRole } from '../auth/rbac'
+import type { Role } from '../auth/rbac'
 
 /** 后端：成功 code=200；Header 名 token */
 export interface ApiResult<T> {

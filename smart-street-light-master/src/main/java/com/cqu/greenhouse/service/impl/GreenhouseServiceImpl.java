@@ -6,8 +6,11 @@ import com.cqu.greenhouse.entity.*;
 import com.cqu.greenhouse.mapper.*;
 import com.cqu.greenhouse.service.IGreenhouseService;
 import com.cqu.greenhouse.sim.ClimateProfiles;
+import com.cqu.greenhouse.sim.DynamicLightTarget;
 import com.cqu.greenhouse.sim.GreenhouseGeometry;
+import com.cqu.greenhouse.sim.LightEconomics;
 import com.cqu.greenhouse.sim.LightFieldModel;
+import com.cqu.greenhouse.sim.SpectrumShares;
 import com.cqu.vo.WebSocketMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -79,8 +82,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         List<GhDevice> devices = devicesOf(zoneId);
         double minute = currentMinuteOfDay();
         double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), minute);
-        LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor);
-        LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, 100, false);
+        LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor, minute);
+        LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, minute, 100, false);
 
         double humidity = synthHumidity(minute, zone.getShadeOpenPercent());
         double tempC = synthTemp(minute, outdoor);
@@ -114,10 +117,28 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             p.put("ppfd", round(g.ppfd()));
             p.put("sunPpfd", round(g.sunPpfd()));
             p.put("ledPpfd", round(g.ledPpfd()));
+            p.put("rPpfd", round(g.rPpfd()));
+            p.put("gPpfd", round(g.gPpfd()));
+            p.put("bPpfd", round(g.bPpfd()));
             return p;
         }).toList());
         out.put("nx", field.nx());
         out.put("ny", field.ny());
+        out.put("shadeTransmittance", round(field.shadeTransmittance() * 1000.0) / 1000.0);
+        out.put("coverTransmittance", round(field.coverTransmittance() * 1000.0) / 1000.0);
+        out.put("sunModel", field.sunModel());
+        out.put("bedStats", field.bedStats().entrySet().stream().map(e -> {
+            LightFieldModel.BedLightStat s = e.getValue();
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("bedId", s.bedId());
+            m.put("avgPpfd", round(s.avgPpfd()));
+            m.put("minPpfd", round(s.minPpfd()));
+            m.put("avgLed", round(s.avgLed()));
+            m.put("cellCount", s.cellCount());
+            double u0 = s.avgPpfd() > 1e-3 ? s.minPpfd() / s.avgPpfd() : 0;
+            m.put("uniformityU0", Math.round(u0 * 1000.0) / 1000.0);
+            return m;
+        }).toList());
         double lengthM = zone.getLengthM() != null
                 ? zone.getLengthM().doubleValue() : GreenhouseGeometry.LENGTH_M;
         double widthM = zone.getWidthM() != null
@@ -137,6 +158,39 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         if (recipe != null) {
             out.put("recipe", recipe);
         }
+        double dliVal = zone.getLastDli() != null ? zone.getLastDli().doubleValue() : 0;
+        DynamicLightTarget.Result dyn = null;
+        if (recipe != null) {
+            dyn = DynamicLightTarget.compute(recipe, minute, tempC, humidity, dliVal);
+            out.put("dynamicTarget", dyn.toMap());
+            out.put("vpdKpa", dyn.toMap().get("vpdKpa"));
+        }
+        int avgDimApi = (int) devices.stream()
+                .filter(d -> "GROW_LAMP".equals(d.getDeviceType()))
+                .mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0)
+                .average().orElse(0);
+        long lampCount = devices.stream().filter(d -> "GROW_LAMP".equals(d.getDeviceType())).count();
+        SpectrumShares.Rgb ledShare = SpectrumShares.ledForRecipe(zone.getRecipeId());
+        out.put("spectrum", Map.of(
+                "sunShare", Map.of("r", SpectrumShares.SUN.r(), "g", SpectrumShares.SUN.g(), "b", SpectrumShares.SUN.b()),
+                "ledShare", Map.of("r", ledShare.r(), "g", ledShare.g(), "b", ledShare.b()),
+                "noteZh", "补光为作物配方三色比；日光为宽带 PAR 分解"
+        ));
+        out.put("economics", LightEconomics.summarize(
+                zone.getRecipeId(),
+                dliVal,
+                dyn != null ? dyn.dliTargetMin() : 0,
+                avgDimApi,
+                (int) lampCount,
+                zone.getShadeOpenPercent() != null ? zone.getShadeOpenPercent() : 100,
+                field.effectivePpfd(),
+                natural.effectivePpfd(),
+                field.ledEffectivePpfd(),
+                dyn != null ? dyn.instantMin() : 0,
+                dyn != null ? dyn.instantMax() : 0,
+                minute / 1440.0,
+                null
+        ));
         out.put("devices", devices);
         out.put("series", daySeries.getOrDefault(zoneId, List.of()));
         return out;
@@ -286,6 +340,10 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             throw new IllegalArgumentException("非遮阳设备");
         }
         int p = clamp(percent, 0, 100);
+        // 自动控光：遮阳只走粗档，模拟机械难微调
+        if ("AUTO".equals(source)) {
+            p = LightEconomics.snapShadeOpen(p);
+        }
         device.setShadeOpenPercent(p);
         device.setLastSeenAt(LocalDateTime.now());
         deviceMapper.updateById(device);
@@ -391,8 +449,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             }
             List<GhDevice> devices = devicesOf(zone.getZoneId());
             double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), simMinuteOfDay);
-            LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor);
-            LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, 100, false);
+            LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay);
+            LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay, 100, false);
 
             double humidity = synthHumidity(simMinuteOfDay, zone.getShadeOpenPercent());
             double tempC = synthTemp(simMinuteOfDay, outdoor);
@@ -444,6 +502,15 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             sample.put("temperatureC", round(tempC));
             sample.put("shadeOpenPercent", zone.getShadeOpenPercent());
             sample.put("avgDimmingPercent", avgDim);
+            GhRecipe recipeSample = getRecipe(zone.getRecipeId());
+            if (recipeSample != null) {
+                DynamicLightTarget.Result dyn = DynamicLightTarget.compute(
+                        recipeSample, simMinuteOfDay, tempC, humidity, dli.doubleValue());
+                sample.put("targetPpfdMin", round(dyn.instantMin()));
+                sample.put("targetPpfdMax", round(dyn.instantMax()));
+                sample.put("vpdKpa", round(dyn.vpdKpa() * 1000.0) / 1000.0);
+                sample.put("dliSoFar", round(dli.doubleValue() * 1000.0) / 1000.0);
+            }
             daySeries.computeIfAbsent(zone.getZoneId(), k -> new ArrayList<>()).add(sample);
             List<Map<String, Object>> series = daySeries.get(zone.getZoneId());
             if (series.size() > SERIES_CAP) {
@@ -451,7 +518,7 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             }
 
             if (Boolean.TRUE.equals(zone.getAutoControl())) {
-                applyRules(zone, devices, field.effectivePpfd());
+                applyRules(zone, devices, field, tempC, humidity);
             }
         }
         pushWs();
@@ -459,13 +526,30 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
 
     @Override
     public void resetSimDay() {
-        simMinuteOfDay = 0;
+        // 从上午 9:00 起跑，避免长时间「夜里只见灯峰」
+        simMinuteOfDay = 540;
         daySeries.clear();
         lastActionSimMinute.clear();
         for (GhZone zone : listZones()) {
             GhZone patch = new GhZone();
             patch.setLastDli(BigDecimal.ZERO);
+            // 演示重置：遮阳全开 + 自动控光开，便于追动态目标带
+            patch.setShadeOpenPercent(100);
+            patch.setAutoControl(true);
             zoneMapper.update(patch, new LambdaQueryWrapper<GhZone>().eq(GhZone::getZoneId, zone.getZoneId()));
+
+            List<GhDevice> devices = devicesOf(zone.getZoneId());
+            for (GhDevice d : devices) {
+                if ("SHADE_ACTUATOR".equals(d.getDeviceType())) {
+                    d.setShadeOpenPercent(100);
+                    deviceMapper.updateById(d);
+                } else if ("GROW_LAMP".equals(d.getDeviceType())) {
+                    // 中等补光，便于与日光对比（过强会淹没自然光）
+                    d.setDimmingPercent(20);
+                    d.setPowerOn(true);
+                    deviceMapper.updateById(d);
+                }
+            }
         }
         pushWs();
     }
@@ -484,8 +568,9 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     @Override
     public LightFieldModel.FieldResult previewField(String zoneId) {
         GhZone zone = requireZone(zoneId);
+        double minute = currentMinuteOfDay();
         return LightFieldModel.compute(zone, devicesOf(zoneId),
-                ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), currentMinuteOfDay()));
+                ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), minute), minute);
     }
 
     @Override
@@ -508,13 +593,13 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
 
     // -------------------- rules --------------------
 
-    private void applyRules(GhZone zone, List<GhDevice> devices, double effectivePpfd) {
+    private void applyRules(GhZone zone, List<GhDevice> devices, LightFieldModel.FieldResult field,
+                            double tempC, double humidity) {
         GhRecipe recipe = getRecipe(zone.getRecipeId());
         if (recipe == null) {
             return;
         }
-        // 冷却按仿真分钟：默认约 30 sim-min（压缩日下仍可多次动作）
-        int cooldownMin = 30;
+        int cooldownMin = 10;
         Double last = lastActionSimMinute.get(zone.getZoneId());
         if (last != null) {
             double delta = simMinuteOfDay - last;
@@ -526,14 +611,16 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             }
         }
 
-        double hardMin = recipe.getPpfdHardMin().doubleValue();
-        double hardMax = recipe.getPpfdHardMax().doubleValue();
-        double tMin = recipe.getPpfdTargetMin().doubleValue();
-        double tMax = recipe.getPpfdTargetMax().doubleValue();
+        double effectivePpfd = field.effectivePpfd();
+        double dliVal = zone.getLastDli() != null ? zone.getLastDli().doubleValue() : 0;
+        DynamicLightTarget.Result dyn = DynamicLightTarget.compute(
+                recipe, simMinuteOfDay, tempC, humidity, dliVal);
+        double hardMin = dyn.hardMin();
+        double hardMax = dyn.hardMax();
+        double tMin = dyn.instantMin();
+        double tMax = dyn.instantMax();
+        double mid = (tMin + tMax) / 2.0;
         int dimStep = recipe.getDimmingStepPct() != null ? recipe.getDimmingStepPct() : 5;
-        int shadeStep = recipe.getShadeStepPct() != null ? recipe.getShadeStepPct() : 10;
-        int approveDim = recipe.getApproveDimAbove() != null ? recipe.getApproveDimAbove() : 80;
-        int approveShade = recipe.getApproveShadeAbove() != null ? recipe.getApproveShadeAbove() : 80;
 
         List<GhDevice> lamps = devices.stream().filter(d -> "GROW_LAMP".equals(d.getDeviceType())).toList();
         GhDevice shade = devices.stream().filter(d -> "SHADE_ACTUATOR".equals(d.getDeviceType())).findFirst().orElse(null);
@@ -542,60 +629,153 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
 
         Runnable mark = () -> lastActionSimMinute.put(zone.getZoneId(), simMinuteOfDay);
 
-        if (effectivePpfd > hardMax) {
-            if (Boolean.TRUE.equals(recipe.getAutoShade()) && shade != null && currentShade > 0) {
-                int next = Math.max(0, currentShade - shadeStep);
-                if (next <= 40 && currentShade > 40) {
-                    createWorkOrder(zone.getZoneId(), shade.getDeviceSn(),
-                            "过光(PPFD=" + round(effectivePpfd) + ")建议遮阳开度→" + next,
-                            null, next);
+        if (dyn.photoperiodMask() < 0.05) {
+            if (!lamps.isEmpty() && avgDim > 0 && Boolean.TRUE.equals(recipe.getAutoSupplement())) {
+                int next = Math.max(0, avgDim - Math.max(dimStep, 15));
+                applyDimToAll(lamps, next, "AUTO", zone.getZoneId(), "光周期外降灯→" + next + "%");
+                mark.run();
+            }
+            return;
+        }
+
+        double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), simMinuteOfDay);
+        double naturalOpen = LightFieldModel.naturalScaleForShadeOpen(zone, outdoor, simMinuteOfDay, 100);
+        int shadeClosedStep = LightEconomics.stepShadeClosed(currentShade);
+        double naturalIfClosed = LightFieldModel.naturalScaleForShadeOpen(
+                zone, outdoor, simMinuteOfDay, shadeClosedStep);
+
+        // 区级过硬限：先分床降灯，再考虑遮阳
+        if (effectivePpfd > hardMax || (effectivePpfd > tMax + 4 && tMax > 1)) {
+            if (avgDim > 0 && !lamps.isEmpty() && Boolean.TRUE.equals(recipe.getAutoSupplement())) {
+                boolean acted = adjustLampsPerBed(lamps, field, mid, tMin, tMax, dimStep, true,
+                        zone.getZoneId());
+                if (acted) {
                     mark.run();
                     return;
                 }
-                setShadeOpen(shade.getDeviceSn(), next, "AUTO");
-                mark.run();
-                return;
             }
-            if (!lamps.isEmpty() && avgDim > 0) {
-                int next = Math.max(0, avgDim - dimStep);
-                applyDimToAll(lamps, next, "AUTO", approveDim, zone.getZoneId(),
-                        "过光降灯→" + next + "%");
-                mark.run();
+            if (Boolean.TRUE.equals(recipe.getAutoShade()) && shade != null && currentShade > 10) {
+                boolean ok = LightEconomics.shouldCloseShade(
+                        effectivePpfd, naturalOpen, naturalIfClosed, mid, hardMax, avgDim);
+                if (ok && shadeClosedStep < currentShade) {
+                    setShadeOpen(shade.getDeviceSn(), shadeClosedStep, "AUTO");
+                    mark.run();
+                }
             }
             return;
         }
 
-        if (effectivePpfd < hardMin) {
+        // 欠光：先开遮阳，再分床补光
+        if (effectivePpfd < hardMin || (effectivePpfd < tMin - 2 && tMin > 1)) {
             if (Boolean.TRUE.equals(recipe.getAutoShade()) && shade != null && currentShade < 100) {
-                int next = Math.min(100, currentShade + shadeStep);
-                setShadeOpen(shade.getDeviceSn(), next, "AUTO");
-                mark.run();
-                return;
+                int opened = LightEconomics.stepShadeOpened(currentShade);
+                if (opened > currentShade) {
+                    setShadeOpen(shade.getDeviceSn(), opened, "AUTO");
+                    mark.run();
+                    return;
+                }
             }
             if (Boolean.TRUE.equals(recipe.getAutoSupplement()) && !lamps.isEmpty()) {
-                int next = Math.min(100, avgDim + dimStep);
-                applyDimToAll(lamps, next, "AUTO", approveDim, zone.getZoneId(),
-                        "欠光补光→" + next + "% (PPFD=" + round(effectivePpfd) + ")");
-                mark.run();
+                boolean acted = adjustLampsPerBed(lamps, field, mid, tMin, tMax, dimStep, false,
+                        zone.getZoneId());
+                if (acted) {
+                    mark.run();
+                }
             }
             return;
         }
 
-        if (effectivePpfd < tMin && Boolean.TRUE.equals(recipe.getAutoSupplement()) && !lamps.isEmpty()) {
-            int next = Math.min(100, avgDim + dimStep);
-            applyDimToAll(lamps, next, "AUTO", approveDim, zone.getZoneId(),
-                    "低于目标带微调补光→" + next + "%");
-            mark.run();
-        } else if (effectivePpfd > tMax && Boolean.TRUE.equals(recipe.getAutoShade()) && shade != null && currentShade > 0) {
-            int next = Math.max(0, currentShade - shadeStep);
-            setShadeOpen(shade.getDeviceSn(), next, "AUTO");
-            mark.run();
+        // 目标带内：分床微调；遮阳仅在灯已低时谨慎关
+        if (Boolean.TRUE.equals(recipe.getAutoSupplement()) && !lamps.isEmpty()) {
+            boolean acted = adjustLampsPerBed(lamps, field, mid, tMin, tMax, dimStep, false,
+                    zone.getZoneId());
+            if (acted) {
+                mark.run();
+                return;
+            }
+        }
+        if (effectivePpfd > tMax && avgDim <= 8 && Boolean.TRUE.equals(recipe.getAutoShade())
+                && shade != null) {
+            boolean ok = LightEconomics.shouldCloseShade(
+                    effectivePpfd, naturalOpen, naturalIfClosed, mid, hardMax, avgDim);
+            if (ok && shadeClosedStep < currentShade) {
+                setShadeOpen(shade.getDeviceSn(), shadeClosedStep, "AUTO");
+                mark.run();
+            }
         }
     }
 
-    private void applyDimToAll(List<GhDevice> lamps, int next, String source, int approveAbove,
+    /**
+     * 按床调节：只改该床所属灯，使床面 AVG 靠近目标中值。
+     *
+     * @param forceDim true=过光强制降
+     */
+    private boolean adjustLampsPerBed(List<GhDevice> lamps, LightFieldModel.FieldResult field,
+                                      double mid, double tMin, double tMax, int dimStep,
+                                      boolean forceDim, String zoneId) {
+        Map<String, LightFieldModel.BedLightStat> beds = field.bedStats();
+        if (beds == null || beds.isEmpty()) {
+            return false;
+        }
+        boolean any = false;
+        for (Map.Entry<String, LightFieldModel.BedLightStat> e : beds.entrySet()) {
+            String bedId = e.getKey();
+            LightFieldModel.BedLightStat st = e.getValue();
+            List<GhDevice> bedLamps = lamps.stream()
+                    .filter(l -> bedId.equals(GreenhouseGeometry.lampBedId(l.getDeviceSn())))
+                    .toList();
+            if (bedLamps.isEmpty()) {
+                continue;
+            }
+            int cur = (int) bedLamps.stream()
+                    .mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0)
+                    .average().orElse(0);
+            double bedPpfd = st.avgPpfd();
+            int next = cur;
+            if (forceDim || bedPpfd > tMax + 2) {
+                int drop = Math.max(dimStep, (int) Math.min(25,
+                        Math.ceil((bedPpfd - mid) / Math.max(mid, 20) * 35)));
+                next = Math.max(0, cur - drop);
+            } else if (bedPpfd < tMin - 1) {
+                int boost = Math.max(dimStep, (int) Math.min(22,
+                        Math.ceil((mid - bedPpfd) / Math.max(mid, 20) * 40)));
+                next = Math.min(100, cur + boost);
+            } else if (bedPpfd < tMin) {
+                next = Math.min(100, cur + dimStep);
+            } else if (bedPpfd > tMax) {
+                next = Math.max(0, cur - dimStep);
+            }
+            if (next != cur) {
+                applyDimToAll(bedLamps, next, "AUTO", zoneId,
+                        "分床 " + bedId + " 调光→" + next + "% (床均=" + round(bedPpfd)
+                                + ", 目标≈" + round(mid) + ")");
+                any = true;
+            }
+        }
+        // L1 叠层灯：弱跟随，避免长期满功率
+        List<GhDevice> l1 = lamps.stream()
+                .filter(l -> l.getDeviceSn() != null && l.getDeviceSn().contains("L1"))
+                .toList();
+        if (!l1.isEmpty()) {
+            int cur = (int) l1.stream().mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0)
+                    .average().orElse(0);
+            int next = cur;
+            if (forceDim && cur > 0) {
+                next = Math.max(0, cur - dimStep);
+            } else if (!forceDim && field.effectivePpfd() < tMin && cur < 40) {
+                next = Math.min(40, cur + dimStep);
+            }
+            if (next != cur) {
+                applyDimToAll(l1, next, "AUTO", zoneId, "上层灯微调→" + next + "%");
+                any = true;
+            }
+        }
+        return any;
+    }
+
+    private void applyDimToAll(List<GhDevice> lamps, int next, String source,
                                String zoneId, String reason) {
-        if (next >= approveAbove) {
+        if (!"AUTO".equals(source) && next >= 80) {
             GhDevice first = lamps.get(0);
             createWorkOrder(zoneId, first.getDeviceSn(), reason, next, null);
             return;

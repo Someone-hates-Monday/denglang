@@ -1,5 +1,14 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { can, homePathFor, normalizeRole, type Capability } from '../auth/rbac'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    public?: boolean
+    title?: string
+    caps?: Capability[]
+  }
+}
 
 const routes: RouteRecordRaw[] = [
   {
@@ -12,30 +21,42 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('../layouts/AppShell.vue'),
     children: [
-      { path: '', redirect: '/greenhouse' },
+      { path: '', redirect: () => homePathFor(useAuthStore().role) },
       {
         path: 'dashboard',
         name: 'dashboard',
         component: () => import('../views/DashboardView.vue'),
-        meta: { title: '场务总览' },
+        meta: { title: '场务总览', caps: ['dash.view'] },
       },
       {
         path: 'greenhouse',
         name: 'greenhouse',
         component: () => import('../views/GreenhouseView.vue'),
-        meta: { title: '冠层光场' },
+        meta: { title: '冠层光场', caps: ['gh.view'] },
       },
       {
         path: 'devices',
         name: 'devices',
         component: () => import('../views/DevicesView.vue'),
-        meta: { title: '设备' },
+        meta: { title: '设备', caps: ['dev.debug'] },
+      },
+      {
+        path: 'reports',
+        name: 'reports',
+        component: () => import('../views/ReportsView.vue'),
+        meta: { title: '报告', caps: ['report.view'] },
       },
       {
         path: 'logs',
         name: 'logs',
         component: () => import('../views/ControlLogsView.vue'),
-        meta: { title: '控制日志' },
+        meta: { title: '控制日志', caps: ['log.view'] },
+      },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('../views/UsersView.vue'),
+        meta: { title: '用户管理', caps: ['user.manage'] },
       },
     ],
   },
@@ -49,10 +70,19 @@ export const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.public) {
-    if (auth.isAuthed && to.name === 'login') return '/greenhouse'
+    if (auth.isAuthed && to.name === 'login') return auth.homePath
     return true
   }
   if (!auth.isAuthed) return { name: 'login', query: { redirect: to.fullPath } }
-  if (to.meta.admin && !auth.isAdmin) return '/greenhouse'
+
+  const caps = to.meta.caps as Capability[] | undefined
+  if (caps?.length) {
+    const r = normalizeRole(auth.role)
+    // 设备页仅运维 / 系统（与导航一致）
+    if (to.name === 'devices' && r !== 'DEVICE_OPS' && r !== 'SYS_ADMIN') {
+      return auth.homePath
+    }
+    if (!caps.some((c) => can(r, c))) return auth.homePath
+  }
   return true
 })

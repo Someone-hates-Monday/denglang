@@ -1,0 +1,54 @@
+-- Layout v1.3 lighting (ASCII names; UI can rename later)
+-- docs/greenhouse/LIGHTING-UPGRADE-v1.3.md
+
+INSERT INTO gh_devices (device_sn, device_name, zone_id, device_type, model, adapter_id, pos_x, pos_y, pos_z, dimming_percent, shade_open_percent, power_on, online_status)
+VALUES
+ ('LAMP-ZONE-A-01', 'A-S-W', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 1.75, 1.40, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-02', 'A-S-M', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 4.00, 1.40, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-03', 'A-S-E', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 6.25, 1.40, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-04', 'A-M-W', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 1.75, 3.50, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-05', 'A-M-M', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 4.00, 3.50, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-06', 'A-M-E', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 6.25, 3.50, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-07', 'A-N-W', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 1.75, 5.60, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-08', 'A-N-M', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 4.00, 5.60, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-09', 'A-N-E', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 6.25, 5.60, 1.85, 25, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-L1-01', 'A-M-L1', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 4.00, 3.50, 2.15, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-A-L1-02', 'A-N-L1', 'ZONE-A', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 4.00, 5.60, 2.15, 15, NULL, TRUE, 'ONLINE'),
+ ('PAR-ZONE-A-01', 'PAR-A-S-W', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 1.75, 1.40, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-02', 'PAR-A-S-M', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 4.00, 1.40, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-03', 'PAR-A-S-E', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 6.25, 1.40, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-04', 'PAR-A-M-W', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 1.75, 3.50, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-05', 'PAR-A-M-M', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 4.00, 3.50, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-06', 'PAR-A-M-E', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 6.25, 3.50, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-07', 'PAR-A-N-W', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 1.75, 5.60, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-08', 'PAR-A-N-M', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 4.00, 5.60, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-09', 'PAR-A-N-E', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 6.25, 5.60, 0.90, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-L1-01', 'PAR-A-M-L1', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 4.00, 3.50, 1.35, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-A-L1-02', 'PAR-A-N-L1', 'ZONE-A', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 4.00, 5.60, 1.35, NULL, NULL, NULL, 'ONLINE'),
+ ('LAMP-ZONE-B-01', 'B-S-W', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 9.75, 1.40, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-02', 'B-S-M', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 12.00, 1.40, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-03', 'B-S-E', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 14.25, 1.40, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-04', 'B-M-W', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 9.75, 3.50, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-05', 'B-M-M', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 12.00, 3.50, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-06', 'B-M-E', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 14.25, 3.50, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-07', 'B-N-W', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 9.75, 5.60, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-08', 'B-N-M', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 12.00, 5.60, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('LAMP-ZONE-B-09', 'B-N-E', 'ZONE-B', 'GROW_LAMP', 'SIM_LAMP', 'sim.lamp', 14.25, 5.60, 1.85, 15, NULL, TRUE, 'ONLINE'),
+ ('PAR-ZONE-B-01', 'PAR-B-S-W', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 9.75, 1.40, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-02', 'PAR-B-S-M', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 12.00, 1.40, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-03', 'PAR-B-S-E', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 14.25, 1.40, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-04', 'PAR-B-M-W', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 9.75, 3.50, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-05', 'PAR-B-M-M', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 12.00, 3.50, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-06', 'PAR-B-M-E', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 14.25, 3.50, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-07', 'PAR-B-N-W', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 9.75, 5.60, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-08', 'PAR-B-N-M', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 12.00, 5.60, 0.78, NULL, NULL, NULL, 'ONLINE'),
+ ('PAR-ZONE-B-09', 'PAR-B-N-E', 'ZONE-B', 'PAR_SENSOR', 'SIM_PAR', 'sim.par', 14.25, 5.60, 0.78, NULL, NULL, NULL, 'ONLINE')
+ON CONFLICT (device_sn) DO UPDATE SET
+    device_name = EXCLUDED.device_name,
+    pos_x = EXCLUDED.pos_x,
+    pos_y = EXCLUDED.pos_y,
+    pos_z = EXCLUDED.pos_z,
+    online_status = EXCLUDED.online_status;
+
+UPDATE gh_devices SET pos_x = 4.0, pos_y = 6.70, pos_z = 3.50 WHERE device_sn = 'SHADE-ZONE-A';
+UPDATE gh_devices SET pos_x = 12.0, pos_y = 6.70, pos_z = 3.50 WHERE device_sn = 'SHADE-ZONE-B';

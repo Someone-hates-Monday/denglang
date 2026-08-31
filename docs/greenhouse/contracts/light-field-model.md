@@ -37,19 +37,22 @@
 
 ## 2. 灯具与遮阳布局
 
-完整灯/PAR/床位表以 JSON 为准。摘要：
+完整灯/PAR/床位表以 JSON **v1.3** 为准（见 [LIGHTING-UPGRADE-v1.3.md](../LIGHTING-UPGRADE-v1.3.md)）：
 
-- ZONE-A：4 灯 2×2，`maxPpfdAtCanopy=160`，Z=2.30  
-- ZONE-B：3 灯品字，`maxPpfdAtCanopy=140`，Z=2.30  
-- 外遮阳半跨：`SHADE-ZONE-A` / `SHADE-ZONE-B`，Z≈3.50，`maxBlockFraction=0.85`  
-- 网格建议：`nx=32, ny=14, marginM=0.25`
+- ZONE-A：每床 3 灯 × 3 床 + 2×L1；`maxPpfdAtCanopy≈95/55`，Z=1.85 / 2.15  
+- ZONE-B：每床 3 灯 × 3 床；峰值 ≈80，Z=1.85  
+- 半角 55°；床体/搁架遮挡；**分床**调光  
+- 外遮阳半跨：`SHADE-ZONE-A` / `SHADE-ZONE-B`，Z≈3.50  
+- 网格：`nx=32, ny=14, marginM=0.25`
 
-自然光项：
+自然光项（直射 + 漫射）：
 
-`E_sun_in(t) = E_out_par(t) × coverTransmittance × (1 - maxBlockFraction × shadeClosedFraction) × bedSunFactor`
+```
+E_base = E_out × τ_cover × τ_shade × sin(elevation)
+E_sun  = E_base × [(1−f_dif)×bedSun×sunOcclusion + f_dif×bedSunDiffuse]
+```
 
-其中 `shadeClosedFraction = 1 - shadeOpenPercent/100`（开度 100% = 全开、少遮）。  
-`bedSunFactor`：直射日南/中/北床 1.06 / 1.00 / 0.94；漫射日 1.02 / 1.00 / 0.98。
+`shadeClosedFraction = 1 - shadeOpenPercent/100`。雾天 `f_dif` 升高，南北差缩小。
 
 ---
 

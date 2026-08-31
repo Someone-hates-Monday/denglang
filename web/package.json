@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bake:glb": "node scripts/bake-greenhouse-assets.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

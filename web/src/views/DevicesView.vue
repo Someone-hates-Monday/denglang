@@ -1,615 +1,388 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { api } from '../api/client'
-import { useLatestRequest, useRowAction } from '../composables/useLatestRequest'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
+import { greenhouseApi, type GhDevice, type GhZone } from '../api/greenhouse'
+import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
-import type { Device } from '../types/domain'
+import { ROLE_LABEL, normalizeRole } from '../auth/rbac'
 
-function sortDevices(list: Device[]): Device[] {
-  return [...list].sort((a, b) => a.id - b.id)
+type DeviceKind = '' | 'GROW_LAMP' | 'PAR_SENSOR' | 'SHADE_ACTUATOR'
+
+const TYPE_LABEL: Record<string, string> = {
+  GROW_LAMP: '补光灯',
+  PAR_SENSOR: 'PAR 测点',
+  SHADE_ACTUATOR: '遮阳执行器',
 }
 
-const route = useRoute()
+const auth = useAuthStore()
+const canDebug = computed(() => auth.can('dev.debug'))
 const realtime = useRealtimeStore()
-const listRequest = useLatestRequest()
-const rowAction = useRowAction()
-const groupAction = useRowAction()
-const records = ref<Device[]>([])
-const total = ref(0)
+const zones = ref<GhZone[]>([])
+const records = ref<GhDevice[]>([])
 const msg = ref('')
-const form = reactive({ deviceName: '', deviceSn: '' })
-const filter = reactive({ deviceName: '', status: '', onlineStatus: '' })
-/** 新建编组时的临时输入（按设备 id） */
-const draftGroup = reactive<Record<number, string>>({})
+const err = ref('')
+const busySn = ref<string | null>(null)
+const filter = reactive({
+  keyword: '',
+  zoneId: '',
+  deviceType: '' as DeviceKind,
+  onlineStatus: '',
+})
+let poll: number | undefined
 
-function applyRouteFilter() {
-  filter.status = typeof route.query.status === 'string' ? route.query.status : ''
-  filter.onlineStatus =
-    typeof route.query.onlineStatus === 'string' ? route.query.onlineStatus : ''
+const zoneName = computed(() => {
+  const map = new Map<string, string>()
+  for (const z of zones.value) map.set(z.zoneId, z.name)
+  return map
+})
+
+const filtered = computed(() => {
+  const kw = filter.keyword.trim().toLowerCase()
+  return records.value.filter((d) => {
+    if (filter.zoneId && d.zoneId !== filter.zoneId) return false
+    if (filter.deviceType && d.deviceType !== filter.deviceType) return false
+    if (filter.onlineStatus && d.onlineStatus !== filter.onlineStatus) return false
+    if (!kw) return true
+    return (
+      d.deviceSn.toLowerCase().includes(kw) ||
+      d.deviceName.toLowerCase().includes(kw) ||
+      d.zoneId.toLowerCase().includes(kw)
+    )
+  })
+})
+
+const grouped = computed(() => {
+  const order = zones.value.map((z) => z.zoneId)
+  const map = new Map<string, GhDevice[]>()
+  for (const d of filtered.value) {
+    const list = map.get(d.zoneId) ?? []
+    list.push(d)
+    map.set(d.zoneId, list)
+  }
+  const keys = [...map.keys()].sort((a, b) => {
+    const ia = order.indexOf(a)
+    const ib = order.indexOf(b)
+    if (ia >= 0 && ib >= 0) return ia - ib
+    if (ia >= 0) return -1
+    if (ib >= 0) return 1
+    return a.localeCompare(b)
+  })
+  return keys.map((zoneId) => {
+    const devices = [...(map.get(zoneId) ?? [])].sort((a, b) =>
+      a.deviceSn.localeCompare(b.deviceSn, 'en'),
+    )
+    return {
+      zoneId,
+      name: zoneName.value.get(zoneId) || zoneId,
+      devices,
+      lampCount: devices.filter((d) => d.deviceType === 'GROW_LAMP').length,
+      sensorCount: devices.filter((d) => d.deviceType === 'PAR_SENSOR').length,
+      shadeCount: devices.filter((d) => d.deviceType === 'SHADE_ACTUATOR').length,
+    }
+  })
+})
+
+const stats = computed(() => {
+  const all = records.value
+  return {
+    total: all.length,
+    lamps: all.filter((d) => d.deviceType === 'GROW_LAMP').length,
+    sensors: all.filter((d) => d.deviceType === 'PAR_SENSOR').length,
+    shades: all.filter((d) => d.deviceType === 'SHADE_ACTUATOR').length,
+    online: all.filter((d) => d.onlineStatus === 'ONLINE').length,
+  }
+})
+
+function typeLabel(type: string) {
+  return TYPE_LABEL[type] || type
+}
+
+function posLabel(d: GhDevice) {
+  if (d.posX == null || d.posY == null) return '—'
+  const z = d.posZ != null ? ` · z ${d.posZ.toFixed(2)}` : ''
+  return `x ${d.posX.toFixed(2)} · y ${d.posY.toFixed(2)}${z}`
+}
+
+function statusLabel(d: GhDevice) {
+  if (d.deviceType === 'GROW_LAMP') {
+    const pct = d.dimmingPercent ?? 0
+    if (!d.powerOn && pct <= 0) return '关'
+    return `调光 ${pct}%`
+  }
+  if (d.deviceType === 'SHADE_ACTUATOR') {
+    return `开度 ${d.shadeOpenPercent ?? 0}%`
+  }
+  if (d.lastPpfd != null) return `${d.lastPpfd.toFixed(1)} PPFD`
+  return '测点'
 }
 
 async function load() {
-  const res = await listRequest.run(() =>
-    api.listDevices({ page: 1, pageSize: 50, ...filter }),
-  )
-  if (!res || res.code !== 200) return
-  records.value = sortDevices(res.data.records)
-  total.value = res.data.total
+  err.value = ''
+  try {
+    const [zRes, dRes] = await Promise.all([greenhouseApi.zones(), greenhouseApi.devices()])
+    if (zRes.code !== 200) throw new Error(zRes.errorMsg || '分区加载失败')
+    if (dRes.code !== 200) throw new Error(dRes.errorMsg || '设备加载失败')
+    zones.value = zRes.data || []
+    records.value = dRes.data || []
+  } catch (e) {
+    err.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
-onMounted(async () => {
-  applyRouteFilter()
-  await load()
+async function setLampDimming(d: GhDevice, percent: number) {
+  if (!canDebug.value) return
+  if (!auth.can('ctrl.dim.high') && percent > 80) {
+    msg.value = '本角色调光上限 80%，请走工单或维护窗'
+    return
+  }
+  busySn.value = d.deviceSn
+  msg.value = ''
+  try {
+    const res = await greenhouseApi.dimming(d.deviceSn, percent)
+    msg.value =
+      res.code === 200
+        ? `${d.deviceName}（${d.deviceSn}）：调光 ${percent}%`
+        : res.errorMsg || '调光失败'
+    await load()
+  } finally {
+    busySn.value = null
+  }
+}
+
+async function setShade(d: GhDevice, percent: number) {
+  if (!canDebug.value) return
+  busySn.value = d.deviceSn
+  msg.value = ''
+  try {
+    const res = await greenhouseApi.shade(d.deviceSn, percent)
+    msg.value =
+      res.code === 200
+        ? `${d.deviceName}（${d.deviceSn}）：遮阳开度 ${percent}%`
+        : res.errorMsg || '遮阳调节失败'
+    await load()
+  } finally {
+    busySn.value = null
+  }
+}
+
+onMounted(() => {
+  void load()
+  poll = window.setInterval(() => void load(), 8000)
+})
+onUnmounted(() => {
+  if (poll) window.clearInterval(poll)
 })
 
 watch(
-  () => route.query,
-  async () => {
-    applyRouteFilter()
-    await load()
-  },
+  () => realtime.greenhouseTick,
+  () => void load(),
 )
-
-watch(
-  () => realtime.deviceSyncTick,
-  async () => {
-    await load()
-  },
-)
-
-const grouped = computed(() => {
-  const map = new Map<string, Device[]>()
-  for (const d of records.value) {
-    const name = d.groupName?.trim()
-    if (!name) continue
-    const list = map.get(name) ?? []
-    list.push(d)
-    map.set(name, list)
-  }
-  return [...map.entries()]
-    .sort(([a], [b]) => a.localeCompare(b, 'zh'))
-    .map(([name, devices]) => ({
-      name,
-      devices: sortDevices(devices),
-      onCount: devices.filter((x) => x.status === 'ON').length,
-      mode: groupMode(devices),
-    }))
-})
-
-const groupNames = computed(() => grouped.value.map((g) => g.name))
-
-const ungrouped = computed(() =>
-  sortDevices(records.value.filter((d) => !d.groupName?.trim())),
-)
-
-/** 已分组 / 未分组 互斥视图，避免双区抢高度把编组挤没 */
-const listTab = ref<'grouped' | 'ungrouped'>('grouped')
-
-watch(
-  [grouped, ungrouped],
-  () => {
-    if (listTab.value === 'grouped' && !grouped.value.length && ungrouped.value.length) {
-      listTab.value = 'ungrouped'
-    } else if (listTab.value === 'ungrouped' && !ungrouped.value.length && grouped.value.length) {
-      listTab.value = 'grouped'
-    }
-  },
-  { immediate: true },
-)
-
-function groupMode(devices: Device[]): 'AUTO' | 'MANUAL' | 'MIXED' {
-  const modes = new Set(devices.map((d) => d.controlMode || 'AUTO'))
-  if (modes.size === 1) return modes.has('MANUAL') ? 'MANUAL' : 'AUTO'
-  return 'MIXED'
-}
-
-async function add() {
-  const res = await api.addDevice({ ...form })
-  msg.value = res.code === 200 ? res.data : res.errorMsg || '失败'
-  if (res.code === 200) {
-    form.deviceName = ''
-    form.deviceSn = ''
-    await load()
-  }
-}
-
-async function toggle(d: Device) {
-  const deviceId = d.id
-  const deviceName = d.deviceName
-  const next = d.status === 'ON' ? 'OFF' : 'ON'
-
-  await rowAction.run(deviceId, async () => {
-    records.value = records.value.map((row) =>
-      row.id === deviceId ? { ...row, status: next, controlMode: 'MANUAL' } : row,
-    )
-    const res = await api.switchDevice(deviceId, next)
-    if (res.code === 200) {
-      msg.value = `${deviceName}：已下发 ${res.data.command}（手动模式）`
-      await load()
-    } else {
-      msg.value = res.errorMsg || '失败'
-      await load()
-    }
-  })
-}
-
-async function setMode(d: Device, mode: 'AUTO' | 'MANUAL') {
-  if (d.controlMode === mode) return
-
-  await rowAction.run(d.id, async () => {
-    records.value = records.value.map((row) =>
-      row.id === d.id ? { ...row, controlMode: mode } : row,
-    )
-    const res = await api.setControlMode(d.id, mode)
-    if (res.code === 200) {
-      msg.value =
-        mode === 'AUTO'
-          ? `${d.deviceName}：已切换为自动（跟随阈值）`
-          : `${d.deviceName}：已切换为手动`
-      await load()
-    } else {
-      msg.value = res.errorMsg || '失败'
-      await load()
-    }
-  })
-}
-
-async function assignGroup(d: Device, groupName: string | null) {
-  const name = groupName?.trim() || null
-  if ((d.groupName || null) === name) return
-
-  await rowAction.run(d.id, async () => {
-    records.value = records.value.map((row) =>
-      row.id === d.id ? { ...row, groupName: name } : row,
-    )
-    const res = await api.setDeviceGroup(d.id, name)
-    if (res.code === 200) {
-      msg.value = res.data
-      draftGroup[d.id] = ''
-      await load()
-    } else {
-      msg.value = res.errorMsg || '失败'
-      await load()
-    }
-  })
-}
-
-function onGroupSelect(d: Device, value: string) {
-  if (value === '__new__') {
-    draftGroup[d.id] = ''
-    return
-  }
-  void assignGroup(d, value || null)
-}
-
-async function confirmNewGroup(d: Device) {
-  const name = (draftGroup[d.id] || '').trim()
-  if (!name) {
-    msg.value = '请输入编组名称'
-    return
-  }
-  await assignGroup(d, name)
-}
-
-async function switchGroup(groupName: string, status: 'ON' | 'OFF') {
-  await groupAction.run(groupName, async () => {
-    const res = await api.switchGroup(groupName, status)
-    if (res.code === 200) {
-      msg.value = `编组「${groupName}」：已统一${status === 'ON' ? '开灯' : '关灯'}（${res.data.count} 台）`
-      await load()
-    } else {
-      msg.value = res.errorMsg || '失败'
-    }
-  })
-}
-
-async function setGroupMode(groupName: string, mode: 'AUTO' | 'MANUAL') {
-  await groupAction.run(groupName, async () => {
-    const res = await api.setGroupControlMode(groupName, mode)
-    if (res.code === 200) {
-      msg.value = `编组「${groupName}」：已统一设为${mode === 'AUTO' ? '自动' : '手动'}（${res.data.count} 台）`
-      await load()
-    } else {
-      msg.value = res.errorMsg || '失败'
-    }
-  })
-}
-
-async function remove(id: number) {
-  await rowAction.run(id, async () => {
-    await api.deleteDevice(id)
-    msg.value = '已删除'
-    await load()
-  })
-}
-
-function isCreatingGroup(d: Device): boolean {
-  return Object.prototype.hasOwnProperty.call(draftGroup, d.id)
-}
-
-function cancelCreateGroup(d: Device) {
-  delete draftGroup[d.id]
-}
 </script>
 
 <template>
   <div class="ui-page ui-page-fill devices-page">
     <div class="devices-toolbar slide-up-enter-active">
       <section class="ui-card toolbar-card">
-        <h2 class="ui-card-title">添加设备</h2>
-        <div class="ui-row">
-          <input v-model="form.deviceName" class="ui-input" placeholder="设备名称" />
-          <input
-            v-model="form.deviceSn"
-            class="ui-input mono"
-            placeholder="deviceSn / MQTT 标识"
-          />
-          <button type="button" class="ui-btn" @click="add">添加</button>
+        <h2 class="ui-card-title">棚内设备台账</h2>
+        <p class="hint-line">
+          身份：{{ ROLE_LABEL[normalizeRole(auth.role)] }} · 标识来自光棚布局（如
+          <span class="mono">LAMP-ZONE-A-01</span> /
+          <span class="mono">PAR-ZONE-B-03</span> /
+          <span class="mono">SHADE-ZONE-A</span>），与冠层光场同一套设备。
+        </p>
+        <div class="stat-row">
+          <div class="stat">
+            <span class="stat-label">合计</span>
+            <strong class="mono">{{ stats.total }}</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">补光灯</span>
+            <strong class="mono">{{ stats.lamps }}</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">PAR</span>
+            <strong class="mono">{{ stats.sensors }}</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">遮阳</span>
+            <strong class="mono">{{ stats.shades }}</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">在线</span>
+            <strong class="mono on">{{ stats.online }}/{{ stats.total }}</strong>
+          </div>
         </div>
-        <p class="hint-line">添加后可在棚内设备列表与冠层光场中查看状态。</p>
+        <p class="hint-line">
+          <RouterLink to="/greenhouse">打开冠层光场</RouterLink>
+          查看三维灯位与光场。
+        </p>
         <p v-if="msg" class="ui-msg">{{ msg }}</p>
+        <p v-if="err" class="err">{{ err }}</p>
       </section>
 
       <section class="ui-card toolbar-card">
         <h2 class="ui-card-title">
-          设备列表 <span class="count mono">({{ total }})</span>
+          筛选
+          <span class="count mono">({{ filtered.length }}/{{ records.length }})</span>
         </h2>
         <div class="ui-row">
           <input
-            v-model="filter.deviceName"
+            v-model="filter.keyword"
             class="ui-input"
-            placeholder="名称筛选"
-            @keyup.enter="load"
+            placeholder="名称 / SN / 分区"
           />
-          <select v-model="filter.status" class="ui-select" @change="load">
-            <option value="">开关 · 全部</option>
-            <option value="ON">ON</option>
-            <option value="OFF">OFF</option>
+          <select v-model="filter.zoneId" class="ui-select">
+            <option value="">分区 · 全部</option>
+            <option v-for="z in zones" :key="z.zoneId" :value="z.zoneId">
+              {{ z.zoneId }} · {{ z.name }}
+            </option>
           </select>
-          <select v-model="filter.onlineStatus" class="ui-select" @change="load">
+          <select v-model="filter.deviceType" class="ui-select">
+            <option value="">类型 · 全部</option>
+            <option value="GROW_LAMP">补光灯</option>
+            <option value="PAR_SENSOR">PAR 测点</option>
+            <option value="SHADE_ACTUATOR">遮阳执行器</option>
+          </select>
+          <select v-model="filter.onlineStatus" class="ui-select">
             <option value="">在线 · 全部</option>
             <option value="ONLINE">ONLINE</option>
             <option value="OFFLINE">OFFLINE</option>
           </select>
           <button type="button" class="ui-btn ui-btn-secondary" @click="load">刷新</button>
         </div>
-        <div class="list-tab-row">
-          <div class="mode-seg" role="tablist" aria-label="设备列表范围">
-            <button
-              type="button"
-              class="seg-btn"
-              role="tab"
-              :class="{ on: listTab === 'grouped' }"
-              :aria-selected="listTab === 'grouped'"
-              @click="listTab = 'grouped'"
-            >
-              已分组
-              <span class="seg-count mono">{{ grouped.reduce((n, g) => n + g.devices.length, 0) }}</span>
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              role="tab"
-              :class="{ on: listTab === 'ungrouped' }"
-              :aria-selected="listTab === 'ungrouped'"
-              @click="listTab = 'ungrouped'"
-            >
-              未分组
-              <span class="seg-count mono">{{ ungrouped.length }}</span>
-            </button>
-          </div>
-          <p class="hint-line">
-            {{
-              listTab === 'grouped'
-                ? '查看编组托盘，可对整组统一开关与模式。'
-                : '未分组设备可在此加入或新建编组。'
-            }}
-          </p>
-        </div>
       </section>
     </div>
 
     <div class="ui-fill-body devices-body slide-up-enter-active slide-up-delay-1">
-    <section v-if="listTab === 'grouped'" class="ui-card groups-shell slide-up-enter-active">
-      <h2 class="ui-card-title">已分组</h2>
-      <p v-if="!grouped.length" class="ui-empty">暂无已分组设备，可在「未分组」中加入编组。</p>
-      <template v-else>
-      <p class="groups-shell-hint">同名编组集中在此，可对整组统一开关与模式。</p>
-      <div class="ui-groups-stack">
-    <section
-      v-for="g in grouped"
-      :key="g.name"
-      class="group-tray slide-up-enter-active"
-    >
-      <header class="group-head">
-        <div class="group-title-block">
-          <h3 class="group-title">{{ g.name }}</h3>
-          <p class="group-meta">
-            {{ g.devices.length }} 台 · 开灯 {{ g.onCount }} ·
-            {{ g.mode === 'MIXED' ? '模式不一' : g.mode === 'AUTO' ? '自动' : '手动' }}
-          </p>
-        </div>
-        <div class="ui-action-bar group-controls">
-          <button
-            type="button"
-            class="ui-btn ui-btn-compact"
-            :disabled="groupAction.isActive(g.name)"
-            @click="switchGroup(g.name, 'ON')"
-          >
-            全开
-          </button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-compact ui-btn-secondary"
-            :disabled="groupAction.isActive(g.name)"
-            @click="switchGroup(g.name, 'OFF')"
-          >
-            全关
-          </button>
-          <div class="ui-segment" role="group" aria-label="编组控制模式">
-            <button
-              type="button"
-              :class="{ on: g.mode === 'AUTO' }"
-              :disabled="groupAction.isActive(g.name)"
-              @click="setGroupMode(g.name, 'AUTO')"
-            >
-              自动
-            </button>
-            <button
-              type="button"
-              :class="{ on: g.mode === 'MANUAL' }"
-              :disabled="groupAction.isActive(g.name)"
-              @click="setGroupMode(g.name, 'MANUAL')"
-            >
-              手动
-            </button>
-          </div>
-        </div>
-      </header>
+      <section class="ui-card groups-shell">
+        <h2 class="ui-card-title">按栽培分区</h2>
+        <p v-if="!grouped.length" class="ui-empty">暂无匹配的棚内设备</p>
+        <div v-else class="ui-groups-stack">
+          <section v-for="g in grouped" :key="g.zoneId" class="group-tray">
+            <header class="group-head">
+              <div class="group-title-block">
+                <h3 class="group-title">
+                  <span class="mono">{{ g.zoneId }}</span>
+                  {{ g.name }}
+                </h3>
+                <p class="group-meta">
+                  {{ g.devices.length }} 台 · 补光灯 {{ g.lampCount }} · PAR {{ g.sensorCount }} ·
+                  遮阳 {{ g.shadeCount }}
+                </p>
+              </div>
+            </header>
 
-      <div class="ui-table-panel ui-table-panel--group">
-        <div class="ui-table-wrap">
-        <table class="ui-table">
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>SN</th>
-              <th>开关</th>
-              <th>一致</th>
-              <th>在线</th>
-              <th>编组</th>
-              <th class="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="d in g.devices" :key="d.id">
-              <td class="col-name">{{ d.deviceName }}</td>
-              <td class="col-mono mono">{{ d.deviceSn }}</td>
-              <td>
-                <span class="ui-pill" :data-on="d.status === 'ON'">{{ d.status }}</span>
-              </td>
-              <td>
-                <span
-                  class="ui-badge"
-                  :class="d.statusMatch === false ? 'timeout' : 'ok'"
-                  :title="
-                    d.expectedStatus
-                      ? `期望 ${d.expectedStatus} / 实际 ${d.status}`
-                      : '暂无期望状态'
-                  "
-                >
-                  {{ d.statusMatch === false ? '不一致' : '一致' }}
-                </span>
-              </td>
-              <td class="col-mono">{{ d.onlineStatus }}</td>
-              <td class="group-cell">
-                <template v-if="isCreatingGroup(d)">
-                  <div class="new-group">
-                    <input
-                      v-model="draftGroup[d.id]"
-                      class="ui-input"
-                      placeholder="新编组名"
-                      @keyup.enter="confirmNewGroup(d)"
-                    />
-                    <button
-                      type="button"
-                      class="ui-btn ui-btn-compact"
-                      :disabled="rowAction.isActive(d.id)"
-                      @click="confirmNewGroup(d)"
-                    >
-                      确定
-                    </button>
-                    <button
-                      type="button"
-                      class="ui-btn ui-btn-compact ui-btn-secondary"
-                      @click="cancelCreateGroup(d)"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </template>
-                <select
-                  v-else
-                  class="ui-select group-select"
-                  :value="d.groupName || ''"
-                  :disabled="rowAction.isActive(d.id)"
-                  @change="onGroupSelect(d, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">未分组</option>
-                  <option v-for="name in groupNames" :key="name" :value="name">{{ name }}</option>
-                  <option value="__new__">新建编组…</option>
-                </select>
-              </td>
-              <td class="col-actions">
-                <div class="ui-action-bar">
-                  <button
-                    type="button"
-                    class="ui-btn ui-btn-compact"
-                    :disabled="rowAction.isActive(d.id)"
-                    @click="toggle(d)"
-                  >
-                    {{ rowAction.isActive(d.id) ? '…' : d.status === 'ON' ? '关灯' : '开灯' }}
-                  </button>
-                  <div class="ui-segment" role="group" aria-label="控制模式">
-                    <button
-                      type="button"
-                      :class="{ on: d.controlMode !== 'MANUAL' }"
-                      :disabled="rowAction.isActive(d.id)"
-                      @click="setMode(d, 'AUTO')"
-                    >
-                      自动
-                    </button>
-                    <button
-                      type="button"
-                      :class="{ on: d.controlMode === 'MANUAL' }"
-                      :disabled="rowAction.isActive(d.id)"
-                      @click="setMode(d, 'MANUAL')"
-                    >
-                      手动
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    class="ui-btn ui-btn-compact ui-btn-danger"
-                    :disabled="rowAction.isActive(d.id)"
-                    @click="remove(d.id)"
-                  >
-                    删除
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            <div class="ui-table-panel ui-table-panel--group">
+              <div class="ui-table-wrap">
+                <table class="ui-table">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th>设备 SN</th>
+                      <th>类型</th>
+                      <th>坐标 (m)</th>
+                      <th>状态</th>
+                      <th>在线</th>
+                      <th class="col-actions">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="d in g.devices" :key="d.deviceSn">
+                      <td class="col-name">{{ d.deviceName }}</td>
+                      <td class="col-mono mono">{{ d.deviceSn }}</td>
+                      <td>
+                        <span class="type-pill" :data-type="d.deviceType">
+                          {{ typeLabel(d.deviceType) }}
+                        </span>
+                      </td>
+                      <td class="col-mono mono pos">{{ posLabel(d) }}</td>
+                      <td>
+                        <span
+                          class="ui-pill"
+                          :data-on="
+                            d.deviceType === 'GROW_LAMP'
+                              ? (d.dimmingPercent ?? 0) > 0
+                              : d.deviceType === 'SHADE_ACTUATOR'
+                                ? true
+                                : d.onlineStatus === 'ONLINE'
+                          "
+                        >
+                          {{ statusLabel(d) }}
+                        </span>
+                      </td>
+                      <td class="col-mono">{{ d.onlineStatus || '—' }}</td>
+                      <td class="col-actions">
+                        <div v-if="!canDebug" class="hint-line">只读台账</div>
+                        <div v-else-if="d.deviceType === 'GROW_LAMP'" class="ui-action-bar">
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact ui-btn-secondary"
+                            :disabled="busySn === d.deviceSn"
+                            @click="setLampDimming(d, 0)"
+                          >
+                            关灯
+                          </button>
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact"
+                            :disabled="busySn === d.deviceSn"
+                            @click="setLampDimming(d, 40)"
+                          >
+                            40%
+                          </button>
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact"
+                            :disabled="busySn === d.deviceSn"
+                            @click="setLampDimming(d, 70)"
+                          >
+                            70%
+                          </button>
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact"
+                            :disabled="busySn === d.deviceSn || !auth.can('ctrl.dim.high')"
+                            @click="setLampDimming(d, 100)"
+                          >
+                            100%
+                          </button>
+                        </div>
+                        <div v-else-if="d.deviceType === 'SHADE_ACTUATOR'" class="ui-action-bar">
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact ui-btn-secondary"
+                            :disabled="busySn === d.deviceSn"
+                            @click="setShade(d, 0)"
+                          >
+                            全闭
+                          </button>
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact"
+                            :disabled="busySn === d.deviceSn"
+                            @click="setShade(d, 40)"
+                          >
+                            40%
+                          </button>
+                          <button
+                            type="button"
+                            class="ui-btn ui-btn-compact"
+                            :disabled="busySn === d.deviceSn"
+                            @click="setShade(d, 100)"
+                          >
+                            全开
+                          </button>
+                        </div>
+                        <span v-else class="hint-line">只读测点</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </div>
-      </div>
-    </section>
-      </div>
-      </template>
-    </section>
-
-    <!-- 未分组 -->
-    <section v-else class="ui-card ungrouped-card slide-up-enter-active">
-      <h2 class="ui-card-title">未分组</h2>
-      <p v-if="!ungrouped.length" class="ui-empty">暂无未分组设备</p>
-      <div v-else class="ui-table-panel ui-table-panel--fill">
-        <div class="ui-table-wrap">
-        <table class="ui-table">
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>SN</th>
-              <th>开关</th>
-              <th>一致</th>
-              <th>在线</th>
-              <th>编组</th>
-              <th class="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="d in ungrouped" :key="d.id">
-              <td class="col-name">{{ d.deviceName }}</td>
-              <td class="col-mono mono">{{ d.deviceSn }}</td>
-              <td>
-                <span class="ui-pill" :data-on="d.status === 'ON'">{{ d.status }}</span>
-              </td>
-              <td>
-                <span
-                  class="ui-badge"
-                  :class="d.statusMatch === false ? 'timeout' : 'ok'"
-                  :title="
-                    d.expectedStatus
-                      ? `期望 ${d.expectedStatus} / 实际 ${d.status}`
-                      : '暂无期望状态'
-                  "
-                >
-                  {{ d.statusMatch === false ? '不一致' : '一致' }}
-                </span>
-              </td>
-              <td class="col-mono">{{ d.onlineStatus }}</td>
-              <td class="group-cell">
-                <template v-if="isCreatingGroup(d)">
-                  <div class="new-group">
-                    <input
-                      v-model="draftGroup[d.id]"
-                      class="ui-input"
-                      placeholder="新编组名"
-                      @keyup.enter="confirmNewGroup(d)"
-                    />
-                    <button
-                      type="button"
-                      class="ui-btn ui-btn-compact"
-                      :disabled="rowAction.isActive(d.id)"
-                      @click="confirmNewGroup(d)"
-                    >
-                      确定
-                    </button>
-                    <button
-                      type="button"
-                      class="ui-btn ui-btn-compact ui-btn-secondary"
-                      @click="cancelCreateGroup(d)"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </template>
-                <select
-                  v-else
-                  class="ui-select group-select"
-                  :value="d.groupName || ''"
-                  :disabled="rowAction.isActive(d.id)"
-                  @change="onGroupSelect(d, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">未分组</option>
-                  <option v-for="name in groupNames" :key="name" :value="name">{{ name }}</option>
-                  <option value="__new__">新建编组…</option>
-                </select>
-              </td>
-              <td class="col-actions">
-                <div class="ui-action-bar">
-                  <button
-                    type="button"
-                    class="ui-btn ui-btn-compact"
-                    :disabled="rowAction.isActive(d.id)"
-                    @click="toggle(d)"
-                  >
-                    {{ rowAction.isActive(d.id) ? '…' : d.status === 'ON' ? '关灯' : '开灯' }}
-                  </button>
-                  <div class="ui-segment" role="group" aria-label="控制模式">
-                    <button
-                      type="button"
-                      :class="{ on: d.controlMode !== 'MANUAL' }"
-                      :disabled="rowAction.isActive(d.id)"
-                      @click="setMode(d, 'AUTO')"
-                    >
-                      自动
-                    </button>
-                    <button
-                      type="button"
-                      :class="{ on: d.controlMode === 'MANUAL' }"
-                      :disabled="rowAction.isActive(d.id)"
-                      @click="setMode(d, 'MANUAL')"
-                    >
-                      手动
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    class="ui-btn ui-btn-compact ui-btn-danger"
-                    :disabled="rowAction.isActive(d.id)"
-                    @click="remove(d.id)"
-                  >
-                    删除
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        </div>
-      </div>
-    </section>
+      </section>
     </div>
   </div>
 </template>
@@ -630,61 +403,8 @@ function cancelCreateGroup(d: Device) {
   min-height: 0;
 }
 
-.list-tab-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-}
-
-.mode-seg {
-  display: inline-flex;
-  padding: 3px;
-  background: var(--paper);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-inset);
-}
-
-.seg-btn {
-  border: none;
-  background: transparent;
-  padding: 8px 14px;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--ink-muted);
-  border-radius: calc(var(--radius-md) - 2px);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast);
-}
-
-.seg-btn:hover {
-  color: var(--ink);
-}
-
-.seg-btn.on {
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
-}
-
-.seg-count {
-  font-size: 11px;
-  color: var(--ink-muted);
-  font-weight: 600;
-}
-
-.seg-btn.on .seg-count {
-  color: var(--sodium-deep);
-}
-
 .hint-line {
-  margin: 0;
+  margin: 0 0 var(--space-3);
   font-size: var(--text-xs);
   color: var(--ink-muted);
 }
@@ -693,6 +413,48 @@ function cancelCreateGroup(d: Device) {
   color: var(--accent);
   text-decoration: none;
   font-weight: 600;
+}
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.stat {
+  min-width: 4.5rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--paper);
+  border-radius: var(--radius-md);
+}
+
+.stat-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  margin-bottom: 2px;
+}
+
+.stat strong {
+  font-size: var(--text-lg);
+}
+
+.stat strong.on {
+  color: var(--sodium-deep, #8a5a12);
+}
+
+.err {
+  margin: 0;
+  background: #f7e4d8;
+  border-left: 3px solid #b85c38;
+  padding: 0.55rem 0.75rem;
+}
+
+.count {
+  font-size: var(--text-base);
+  font-weight: 400;
+  color: var(--ink-muted);
 }
 
 .groups-shell {
@@ -705,57 +467,21 @@ function cancelCreateGroup(d: Device) {
 
 .groups-shell .ui-card-title {
   flex-shrink: 0;
-  margin-bottom: var(--space-1);
-}
-
-.groups-shell-hint {
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-  flex-shrink: 0;
+  margin-bottom: var(--space-3);
 }
 
 .groups-shell .ui-groups-stack {
   flex: 1 1 0;
   min-height: 0;
-  max-height: none;
   overflow-y: auto;
-}
-
-.ungrouped-card {
-  flex: 1 1 0;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.ungrouped-card .ui-card-title {
-  flex-shrink: 0;
-  margin-bottom: var(--space-2);
-}
-
-.ungrouped-card .ui-table-panel--fill {
-  flex: 1 1 0;
-  min-height: 0;
-}
-
-.ungrouped-card .ui-table-wrap {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.count {
-  font-size: var(--text-base);
-  font-weight: 400;
-  color: var(--ink-muted);
+  gap: var(--space-4);
 }
 
 .group-tray {
   padding: var(--space-4);
   background: var(--panel-secondary);
-  box-shadow: none;
   border: 1px solid var(--line);
   flex-shrink: 0;
 }
@@ -773,14 +499,12 @@ function cancelCreateGroup(d: Device) {
   gap: var(--space-4);
   flex-wrap: wrap;
   margin-bottom: var(--space-3);
-  padding: 0 var(--space-1);
 }
 
 .group-title {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 600;
-  letter-spacing: var(--tracking-tight);
 }
 
 .group-meta {
@@ -789,31 +513,34 @@ function cancelCreateGroup(d: Device) {
   color: var(--ink-muted);
 }
 
-.group-controls {
-  flex-shrink: 0;
+.pos {
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
-.group-cell {
-  min-width: 140px;
+.type-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  background: var(--paper);
+  color: var(--ink-muted);
 }
 
-.group-select {
-  min-width: 120px;
-  padding: 6px 10px;
-  font-size: var(--text-sm);
+.type-pill[data-type='GROW_LAMP'] {
+  color: #8a5a12;
+  background: #f6e7c8;
 }
 
-.new-group {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  flex-wrap: nowrap;
+.type-pill[data-type='PAR_SENSOR'] {
+  color: #2f5d50;
+  background: #dceee7;
 }
 
-.new-group .ui-input {
-  width: 120px;
-  padding: 6px 10px;
-  font-size: var(--text-sm);
+.type-pill[data-type='SHADE_ACTUATOR'] {
+  color: #3d4f6f;
+  background: #e2e8f2;
 }
 
 @media (max-width: 900px) {

@@ -24,8 +24,13 @@ const now = () => {
 }
 
 let users: { username: string; password: string; role: Role; id: number }[] = [
-  { id: 1, username: 'admin', password: 'admin123', role: 'ADMIN' },
-  { id: 2, username: 'staff', password: 'staff123', role: 'MUNICIPAL_STAFF' },
+  { id: 1, username: 'admin', password: 'admin123', role: 'SYS_ADMIN' },
+  { id: 2, username: 'changzhang', password: 'demo123', role: 'SITE_MANAGER' },
+  { id: 3, username: 'nongyi', password: 'demo123', role: 'AGRONOMIST' },
+  { id: 4, username: 'zhongzhi', password: 'demo123', role: 'GROWER' },
+  { id: 5, username: 'yunwei', password: 'demo123', role: 'DEVICE_OPS' },
+  { id: 6, username: 'xueyuan', password: 'demo123', role: 'TRAINEE' },
+  { id: 7, username: 'staff', password: 'staff123', role: 'GROWER' },
 ]
 
 let devices: Device[] = [
@@ -374,7 +379,7 @@ function withMatch(d: Device): Device {
 
 export function createMockApi(): StreetLightApi {
   return {
-    async register(username, password, role = 'MUNICIPAL_STAFF') {
+    async register(username, password, role = 'GROWER') {
       if (!username.trim() || !password.trim()) return fail('用户名和密码不能为空')
       if (users.some((u) => u.username === username)) return fail('用户名已存在')
       users.push({ id: users.length + 1, username, password, role })

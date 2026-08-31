@@ -2,8 +2,8 @@
 
 > 版本：`v1.1` · 2026-08-30  
 > **地位：物理设计优先于软件。** 细化（叠层/灯感对应/遮阳材料与卷向/3D 路线）见 **[GREENHOUSE-DESIGN-DETAILED.md](./GREENHOUSE-DESIGN-DETAILED.md)**。  
-> 几何数字：[`layouts/cq-demo-bay-v1.json`](./layouts/cq-demo-bay-v1.json)（version **1.1**）。  
-> 配套：[HARDWARE-BOM.md](./HARDWARE-BOM.md) · [contracts/light-field-model.md](./contracts/light-field-model.md) · [contracts/light-recipe.md](./contracts/light-recipe.md)
+> 几何数字：[`layouts/cq-demo-bay-v1.json`](./layouts/cq-demo-bay-v1.json)（version **1.3**）。  
+> 布灯/光场升级：[LIGHTING-UPGRADE-v1.3.md](./LIGHTING-UPGRADE-v1.3.md) · 配套：[HARDWARE-BOM.md](./HARDWARE-BOM.md) · [contracts/light-field-model.md](./contracts/light-field-model.md) · [contracts/light-recipe.md](./contracts/light-recipe.md)
 
 ---
 
@@ -145,62 +145,27 @@ Y=0 └────────────────────────�
 
 ## 4. 补光灯排布
 
+> **v1.3 升级真源：** [LIGHTING-UPGRADE-v1.3.md](./LIGHTING-UPGRADE-v1.3.md) · JSON `version: 1.3`  
+> 摘要：每床 **3 灯**、灯心 **Z=1.85**（冠层净空 ≈0.95 m）、半角 55°、**分床调光**；单灯峰值下调（A≈95 / B≈80）。
+
 ### 4.1 安装通则
 
-| 项 | 冻结值 |
-|----|--------|
-| 型号语义 | BOM：**智圣普 ZPDM651**（或同功率档），`adapterId=sim.lamp` 演示 |
-| 安装高度 | 灯发光中心 **Z = 2.30 m**（距石斛测光面 ≈ 1.80 m） |
-| 悬吊 | 沿拱架横杆；电缆沿脊→分区汇流 |
-| 光学简化 | `maxPpfdAtCanopy`（正下方 100% 调光）+ `beamHalfAngleDeg=60` |
-| 控制 | 单灯 `SET_DIMMING`；大开度变更走工单 |
+| 项 | 冻结值（v1.3） |
+|----|----------------|
+| 型号语义 | BOM：智圣普 ZPDM651 档，`adapterId=sim.lamp` |
+| 安装高度 L0 | 灯发光中心 **Z = 1.85 m** |
+| 朝向 | 光轴竖直向下；灯条长轴东西 |
+| 光学 | `maxPpfdAtCanopy` + `beamHalfAngleDeg=55` + 床体遮挡 |
+| 控制 | **按床**同步同床灯；大开度仍可走工单 |
 
-### 4.2 ZONE-A（4 灯 · 2×2，服务三床）
-
-| deviceSn | X | Y | Z | maxPpfdAtCanopy | 覆盖意图 |
-|----------|---|---|---|-----------------|----------|
-| LAMP-ZONE-A-01 | 2.0 | 2.35 | 2.30 | 160 | 西南 · 南/中床 |
-| LAMP-ZONE-A-02 | 2.0 | 5.35 | 2.30 | 160 | 西北 · 中/北床 |
-| LAMP-ZONE-A-03 | 6.0 | 2.35 | 2.30 | 160 | 东南 · 南/中床 |
-| LAMP-ZONE-A-04 | 6.0 | 5.35 | 2.30 | 160 | 东北 · 中/北床 |
-
-石斛目标带低（组培 60–70），单灯峰值取 **160** 避免仿真过曝；栽培阶段靠调光与遮阳联动。
-
-### 4.3 ZONE-B（3 灯 · 品字形）
-
-| deviceSn | X | Y | Z | maxPpfdAtCanopy | 覆盖意图 |
-|----------|---|---|---|-----------------|----------|
-| LAMP-ZONE-B-01 | 10.0 | 2.35 | 2.30 | 140 | 西侧南/中 |
-| LAMP-ZONE-B-02 | 10.0 | 5.35 | 2.30 | 140 | 西侧中/北 |
-| LAMP-ZONE-B-03 | 13.5 | 3.85 | 2.30 | 140 | 东侧补中轴 |
-
-金线莲目标低，峰值 **140**；切草莓配方后提高目标带，靠调光升，不改灯位。
+详细坐标表以 [`layouts/cq-demo-bay-v1.json`](./layouts/cq-demo-bay-v1.json) 为准（勿在本文重复维护长表）。
 
 ---
 
 ## 5. 传感器与执行器方位
 
-### 5.1 冠层 PAR（主控输入）
-
-测点置于**床面作物上方**测光平面，避免走道；三角/品字布局估均匀度。
-
-**ZONE-A（Z=0.50）**
-
-| deviceSn | X | Y | Z | 床位 |
-|----------|---|---|-----|------|
-| PAR-ZONE-A-01 | 2.0 | 1.40 | 0.50 | 南床 |
-| PAR-ZONE-A-02 | 4.0 | 3.50 | 0.50 | 中床中央 |
-| PAR-ZONE-A-03 | 6.0 | 5.60 | 0.50 | 北床 |
-
-**ZONE-B（Z=0.45）**
-
-| deviceSn | X | Y | Z | 床位 |
-|----------|---|---|-----|------|
-| PAR-ZONE-B-01 | 10.0 | 1.40 | 0.45 | 南床 |
-| PAR-ZONE-B-02 | 12.0 | 3.50 | 0.45 | 中床 |
-| PAR-ZONE-B-03 | 14.0 | 5.60 | 0.45 | 北床 |
-
-型号：演示 `sim.par`；真机路径 SQ-500 / 建大仁科（lux×k）见 BOM。
+> v1.3：每床 **3 个 PAR**，与灯 XY 对齐、Z=测光面；叠层保留 L1 测点。见升级文档 §3。  
+> 型号：演示 `sim.par`；真机路径 SQ-500 / 建大仁科见 BOM。
 
 ### 5.2 遮阳电机
 
@@ -208,8 +173,8 @@ Y=0 └────────────────────────�
 
 | deviceSn | X | Y | Z | 覆盖 X 范围 | 说明 |
 |----------|---|---|---|-------------|------|
-| SHADE-ZONE-A | 4.0 | 3.5 | 3.50 | 0 – 8 | 西半外遮阳轴端/驱动 |
-| SHADE-ZONE-B | 12.0 | 3.5 | 3.50 | 8 – 16 | 东半外遮阳 |
+| SHADE-ZONE-A | 4.0 | 6.7 | 3.50 | 0 – 8 | 西半外遮阳（北侧卷轴） |
+| SHADE-ZONE-B | 12.0 | 6.7 | 3.50 | 8 – 16 | 东半外遮阳 |
 
 `shadeOpenPercent`：100=网收起（透光最大），0=网满展（遮光最大）。与 MQTT 契约一致。
 
@@ -255,8 +220,8 @@ MVP 规则可不读；曲线演示可用气候日型派生湿度。
 - [ ] 朝向：长轴东西、南侧为光入射主面，文档与 3D 一致  
 - [ ] 两区床位与通道尺寸可现场放线（米级）  
 - [ ] 每区 ≥3 PAR + 灯位不压主通道中心线  
-- [ ] 灯高 2.30 m、测光高 0.45/0.50 m 写入种子与 API  
-- [ ] JSON `layouts/cq-demo-bay-v1.json` 与本文表格数字一致  
+- [x] 灯高 **1.85 m**、测光高 0.90/0.78 m、每床 3 灯 3 测（v1.3）写入种子与 API  
+- [x] JSON `layouts/cq-demo-bay-v1.json` **v1.3** 与升级文档一致  
 
 ---
 
@@ -269,7 +234,7 @@ MVP 规则可不读；曲线演示可用气候日型派生湿度。
 3. [x] Three.js：按本坐标系重建拱架、三床、灯/传感器位置；南向指示。  
 4. [x] 前端文案：标明「西南角原点 · 长轴东西 · 南向采光」。  
 5. [x] 仿真南北梯度系数接入自然光项（直射/漫射日型）。  
-6. [x] 连续仿真：250ms tick + 浮点仿真分钟，全日仍约 2 分钟墙钟。
+7. [x] **v1.3** 密布灯 / 抬高净空 / 遮挡光场 / 分床控光（`V20260831_layout_v1_3_lighting.sql` + LIGHTING-UPGRADE）。
 
 ---
 
