@@ -7,12 +7,28 @@ import {
   type GhWorkOrder,
   type GhZone,
 } from '../api/greenhouse'
+import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
 import GreenhouseScene3D from '../components/GreenhouseScene3D.vue'
 import DayCurvesChart from '../components/DayCurvesChart.vue'
 import { HEAT_CHANNEL_LABEL, type HeatChannel } from '../scene/spectrumModel'
+import { ROLE_LABEL, normalizeRole } from '../auth/rbac'
 
+const auth = useAuthStore()
 const realtime = useRealtimeStore()
+const roleBanner = computed(() => {
+  const r = normalizeRole(auth.role)
+  const map: Record<string, string> = {
+    SITE_MANAGER: '场长视图：可开关 AUTO、绑已发布配方、代批紧急工单；不可改配方硬限。',
+    AGRONOMIST: '农艺视图：配方绑定、气候、审批队列；大动作优先走工单。',
+    GROWER: '种植员视图：执行待办工单、阈值内微调遮阳/补光；无 AUTO / 配方编辑。',
+    DEVICE_OPS: '运维只读光场；强制调试请走「设备」页。',
+    TRAINEE: '学员只读：可看热力与日曲线；生产区不可控执行器。',
+    SYS_ADMIN: '系统视图：全能力（演示）。',
+  }
+  return map[r] || ''
+})
+
 const zones = ref<GhZone[]>([])
 const recipes = ref<GhRecipe[]>([])
 const orders = ref<GhWorkOrder[]>([])
@@ -155,7 +171,9 @@ async function onShade(e: Event) {
 }
 
 async function onDim(e: Event) {
-  const pct = Number((e.target as HTMLInputElement).value)
+  let pct = Number((e.target as HTMLInputElement).value)
+  if (!auth.can('ctrl.dim.high') && pct > 80) pct = 80
+  if (!auth.can('ctrl.dim.low')) return
   const lamps = (light.value?.devices || []).filter((d) => d.deviceType === 'GROW_LAMP')
   await Promise.all(lamps.map((d) => greenhouseApi.dimming(d.deviceSn, pct)))
   await refresh()
@@ -170,12 +188,20 @@ const avgDim = computed(() => {
 })
 
 async function approve(id: number) {
+  if (!auth.can('wo.approve')) return
   await greenhouseApi.approve(id)
   await refresh()
 }
 
 async function reject(id: number) {
+  if (!auth.can('wo.reject')) return
   await greenhouseApi.reject(id)
+  await refresh()
+}
+
+async function completeOrder(id: number) {
+  if (!auth.can('wo.complete')) return
+  await greenhouseApi.complete(id)
   await refresh()
 }
 
@@ -208,6 +234,10 @@ onUnmounted(() => {
 <template>
   <div class="ui-page ui-page-fill gh">
     <p v-if="err" class="err">{{ err }} · 请确认后端已启动（:8080）</p>
+    <p v-if="roleBanner" class="role-banner">
+      <span class="role-pill">{{ ROLE_LABEL[normalizeRole(auth.role)] }}</span>
+      {{ roleBanner }}
+    </p>
 
     <div class="top-row">
       <div class="controls">
@@ -217,7 +247,7 @@ onUnmounted(() => {
             <option v-for="z in zones" :key="z.zoneId" :value="z.zoneId">{{ z.name }}</option>
           </select>
         </label>
-        <label class="field">
+        <label class="field" v-if="auth.can('recipe.bind')">
           <span>配方</span>
           <select class="ui-select" :value="light?.recipeId" @change="onRecipe">
             <option v-for="r in recipes" :key="r.recipeId" :value="r.recipeId">
@@ -225,19 +255,34 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
-        <label class="field">
+        <label class="field" v-else-if="light?.recipeId" >
+          <span>配方</span>
+          <span class="readonly mono">{{ light.recipeId }}</span>
+        </label>
+        <label class="field" v-if="auth.can('climate.set')">
           <span>气候</span>
           <select class="ui-select" :value="light?.climateProfileId" @change="onClimate">
             <option v-for="c in climateOptions" :key="c.id" :value="c.id">{{ c.label }}</option>
           </select>
         </label>
-        <button type="button" class="ui-btn ui-btn-compact" @click="toggleAuto">
+        <button
+          v-if="auth.can('auto.toggle')"
+          type="button"
+          class="ui-btn ui-btn-compact"
+          @click="toggleAuto"
+        >
           自动 {{ light?.autoControl ? '开' : '关' }}
         </button>
-        <button type="button" class="ui-btn ui-btn-secondary ui-btn-compact" @click="resetDay">
+        <button
+          v-if="auth.can('sim.reset')"
+          type="button"
+          class="ui-btn ui-btn-secondary ui-btn-compact"
+          @click="resetDay"
+        >
           重跑今日
         </button>
         <button
+          v-if="auth.can('gh.heat')"
           type="button"
           class="ui-btn ui-btn-ghost ui-btn-compact"
           :data-on="showHeat"
@@ -245,7 +290,7 @@ onUnmounted(() => {
         >
           光场 {{ showHeat ? '开' : '关' }}
         </button>
-        <div class="mode-group" v-if="showHeat">
+        <div class="mode-group" v-if="showHeat && auth.can('gh.heat')">
           <button
             v-for="ch in heatChannels"
             :key="ch"
@@ -266,8 +311,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="demo-sliders" v-if="light">
-      <label class="slider">
+    <div
+      class="demo-sliders"
+      v-if="light && (auth.can('ctrl.shade') || auth.can('ctrl.dim.low'))"
+    >
+      <label class="slider" v-if="auth.can('ctrl.shade')">
         <span
           >遮阳粗档 {{ light.shadeOpenPercent }}%（仅
           {{ shadeSteps.join('/') }}；关小挡直射）</span
@@ -285,11 +333,22 @@ onUnmounted(() => {
           <option v-for="s in shadeSteps" :key="s" :value="s" />
         </datalist>
       </label>
-      <label class="slider">
-        <span>三色补光 {{ avgDim }}%（配方光谱 · 升高→灯下更亮）</span>
-        <input type="range" min="0" max="100" step="5" :value="avgDim" @change="onDim" />
+      <label class="slider" v-if="auth.can('ctrl.dim.low')">
+        <span
+          >三色补光 {{ avgDim }}%（配方光谱
+          <template v-if="!auth.can('ctrl.dim.high')"> · 本角色上限 80%</template>）</span
+        >
+        <input
+          type="range"
+          min="0"
+          :max="auth.can('ctrl.dim.high') ? 100 : 80"
+          step="5"
+          :value="avgDim"
+          @change="onDim"
+        />
       </label>
     </div>
+    <p v-else-if="light" class="readonly-hint">当前角色为只读光场，不可直接调节执行器。</p>
 
     <section class="scene-card ui-card fill-card">
       <GreenhouseScene3D
@@ -411,10 +470,18 @@ onUnmounted(() => {
               <strong class="mono">{{ o.zoneId }}</strong>
               <p>{{ o.reason }}</p>
             </div>
-            <div class="acts" v-if="o.status === 'PENDING'">
+            <div class="acts" v-if="o.status === 'PENDING' && auth.can('wo.approve')">
               <button type="button" class="ui-btn ui-btn-compact" @click="approve(o.id)">批准</button>
               <button type="button" class="ui-btn ui-btn-ghost ui-btn-compact" @click="reject(o.id)">
                 驳回
+              </button>
+            </div>
+            <div
+              class="acts"
+              v-else-if="o.status === 'APPROVED' && auth.can('wo.complete')"
+            >
+              <button type="button" class="ui-btn ui-btn-compact" @click="completeOrder(o.id)">
+                完成执行
               </button>
             </div>
           </li>
@@ -438,6 +505,41 @@ onUnmounted(() => {
   background: var(--danger-soft);
   border-left: 3px solid var(--danger);
   border-radius: var(--radius-sm);
+}
+
+.role-banner {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  line-height: 1.45;
+}
+
+.role-pill {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: var(--text-xs);
+}
+
+.readonly-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.readonly {
+  display: inline-block;
+  padding: 8px 10px;
+  background: var(--paper);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
 }
 
 .top-row {

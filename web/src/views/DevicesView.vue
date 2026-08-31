@@ -2,7 +2,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { greenhouseApi, type GhDevice, type GhZone } from '../api/greenhouse'
+import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
+import { ROLE_LABEL, normalizeRole } from '../auth/rbac'
 
 type DeviceKind = '' | 'GROW_LAMP' | 'PAR_SENSOR' | 'SHADE_ACTUATOR'
 
@@ -12,6 +14,8 @@ const TYPE_LABEL: Record<string, string> = {
   SHADE_ACTUATOR: '遮阳执行器',
 }
 
+const auth = useAuthStore()
+const canDebug = computed(() => auth.can('dev.debug'))
 const realtime = useRealtimeStore()
 const zones = ref<GhZone[]>([])
 const records = ref<GhDevice[]>([])
@@ -126,6 +130,11 @@ async function load() {
 }
 
 async function setLampDimming(d: GhDevice, percent: number) {
+  if (!canDebug.value) return
+  if (!auth.can('ctrl.dim.high') && percent > 80) {
+    msg.value = '本角色调光上限 80%，请走工单或维护窗'
+    return
+  }
   busySn.value = d.deviceSn
   msg.value = ''
   try {
@@ -141,6 +150,7 @@ async function setLampDimming(d: GhDevice, percent: number) {
 }
 
 async function setShade(d: GhDevice, percent: number) {
+  if (!canDebug.value) return
   busySn.value = d.deviceSn
   msg.value = ''
   try {
@@ -175,7 +185,8 @@ watch(
       <section class="ui-card toolbar-card">
         <h2 class="ui-card-title">棚内设备台账</h2>
         <p class="hint-line">
-          标识来自光棚布局（如 <span class="mono">LAMP-ZONE-A-01</span> /
+          身份：{{ ROLE_LABEL[normalizeRole(auth.role)] }} · 标识来自光棚布局（如
+          <span class="mono">LAMP-ZONE-A-01</span> /
           <span class="mono">PAR-ZONE-B-03</span> /
           <span class="mono">SHADE-ZONE-A</span>），与冠层光场同一套设备。
         </p>
@@ -301,7 +312,8 @@ watch(
                       </td>
                       <td class="col-mono">{{ d.onlineStatus || '—' }}</td>
                       <td class="col-actions">
-                        <div v-if="d.deviceType === 'GROW_LAMP'" class="ui-action-bar">
+                        <div v-if="!canDebug" class="hint-line">只读台账</div>
+                        <div v-else-if="d.deviceType === 'GROW_LAMP'" class="ui-action-bar">
                           <button
                             type="button"
                             class="ui-btn ui-btn-compact ui-btn-secondary"
@@ -329,7 +341,7 @@ watch(
                           <button
                             type="button"
                             class="ui-btn ui-btn-compact"
-                            :disabled="busySn === d.deviceSn"
+                            :disabled="busySn === d.deviceSn || !auth.can('ctrl.dim.high')"
                             @click="setLampDimming(d, 100)"
                           >
                             100%

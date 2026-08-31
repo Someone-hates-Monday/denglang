@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
 import { isMockMode } from '../config/runtime'
+import { navFor } from '../auth/rbac'
 import BrandIcon from '../components/BrandIcon.vue'
 
 const auth = useAuthStore()
@@ -11,12 +12,7 @@ const realtime = useRealtimeStore()
 const route = useRoute()
 const router = useRouter()
 
-const nav = [
-  { to: '/dashboard', label: '总览', icon: '◉' },
-  { to: '/greenhouse', label: '冠层光场', icon: '▣' },
-  { to: '/devices', label: '设备', icon: '◎' },
-  { to: '/logs', label: '控制日志', icon: '≡' },
-]
+const nav = computed(() => navFor(auth.role))
 
 onMounted(() => realtime.connect())
 
