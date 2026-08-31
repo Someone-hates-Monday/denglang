@@ -56,6 +56,14 @@ const zoneId = ref('ZONE-A')
 const showHeat = ref(true)
 const heatChannel = ref<HeatChannel>('xray')
 const heatChannels: HeatChannel[] = ['xray']
+const statusFilter = ref<'all' | 'attention' | 'alarm' | 'wo' | 'offline'>('all')
+const statusFilterOpts = [
+  { id: 'all' as const, label: '全部' },
+  { id: 'attention' as const, label: '待关注' },
+  { id: 'alarm' as const, label: '告警' },
+  { id: 'wo' as const, label: '工单' },
+  { id: 'offline' as const, label: '离线' },
+]
 const lowerTab = ref<'none' | 'charts' | 'orders' | 'control' | 'strategy' | 'device'>('none')
 type PanelId = typeof lowerTab.value
 const chartScope = ref<ChartScope>('bay')
@@ -495,12 +503,6 @@ onUnmounted(() => {
     <header class="gh-bar">
       <div class="gh-bar-left">
         <span class="role-pill" :title="roleBanner">{{ roleShort }}</span>
-        <label class="field inline">
-          <span>分区</span>
-          <select v-model="zoneId" class="ui-select">
-            <option v-for="z in zones" :key="z.zoneId" :value="z.zoneId">{{ z.name }}</option>
-          </select>
-        </label>
         <button
           v-if="auth.can('gh.heat')"
           type="button"
@@ -510,6 +512,18 @@ onUnmounted(() => {
         >
           光场热力 {{ showHeat ? '开' : '关' }}
         </button>
+        <div class="status-filters" role="group" aria-label="设备状态过滤">
+          <button
+            v-for="opt in statusFilterOpts"
+            :key="opt.id"
+            type="button"
+            class="ui-btn ui-btn-ghost ui-btn-compact"
+            :data-on="statusFilter === opt.id"
+            @click="statusFilter = opt.id"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
       </div>
       <div class="gh-bar-right mono" v-if="light || lights['ZONE-A']">
         <strong>{{ clockLabel(minuteOfDay) }}</strong>
@@ -524,13 +538,13 @@ onUnmounted(() => {
           <GreenhouseScene3D
             :light="bayLight"
             :zone-lights="lights"
-            :focus-zone-id="zoneId"
             :shade-open-a="lights['ZONE-A']?.shadeOpenPercent ?? 100"
             :shade-open-b="lights['ZONE-B']?.shadeOpenPercent ?? 100"
             :show-heat="showHeat"
             :heat-channel="heatChannel"
             :device-statuses="deviceStatuses"
             :selected-device-sn="selectedDeviceSn"
+            :status-filter="statusFilter"
             @select-device="onSelectDevice"
           />
         </div>
@@ -818,7 +832,13 @@ onUnmounted(() => {
 
         <div class="side-body" v-else-if="lowerTab === 'control'">
           <p class="side-lead">
-            当前分区 {{ zoneId }} ·
+            <label class="field inline">
+              <span>调控半跨</span>
+              <select v-model="zoneId" class="ui-select">
+                <option v-for="z in zones" :key="z.zoneId" :value="z.zoneId">{{ z.name }}</option>
+              </select>
+            </label>
+            ·
             <template v-if="!auth.can('ctrl.dim.high')">本角色调光上限 80%</template>
             <template v-else>可高开度调试</template>
           </p>
@@ -898,6 +918,7 @@ onUnmounted(() => {
         <div class="side-body charts-body" v-else-if="lowerTab === 'charts'">
           <p class="side-lead">
             AUTO：贴配方光带 · 过亮遮光、光周期内欠光补光。虚线=调整前，实线=调控后。
+            色带为目标瞬时 PPFD 区间（非假曲线）。
           </p>
           <div class="ui-card chart-wrap overview-wrap">
             <RegionLightOverview
@@ -928,6 +949,12 @@ onUnmounted(() => {
                 {{ s[1] }}
               </button>
             </div>
+            <label v-if="chartScope === 'zone' || chartScope === 'control'" class="field sensor-pick">
+              <span>半跨</span>
+              <select v-model="zoneId" class="ui-select">
+                <option v-for="z in zones" :key="z.zoneId" :value="z.zoneId">{{ z.name }}</option>
+              </select>
+            </label>
             <label v-if="chartScope === 'sensors'" class="field sensor-pick">
               <span>床</span>
               <select v-model="chartFocusBedId" class="ui-select">
@@ -1031,6 +1058,12 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+.status-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .role-pill {

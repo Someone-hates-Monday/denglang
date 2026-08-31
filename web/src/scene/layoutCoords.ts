@@ -67,20 +67,3 @@ export function defaultCameraPose(lengthM: number, widthM: number, ridgeM: numbe
     target: layoutToThree(lengthM / 2, widthM / 2, 1.15),
   }
 }
-
-/** 分区聚焦：西半跨 ZONE-A / 东半跨 ZONE-B */
-export function zoneCameraPose(zoneId: string, lengthM: number, widthM: number, ridgeM: number) {
-  if (zoneId === 'ZONE-B') {
-    return {
-      position: layoutToThree(12.0, -widthM * 1.15, ridgeM * 1.55),
-      target: layoutToThree(12.0, widthM * 0.48, 1.05),
-    }
-  }
-  if (zoneId === 'ZONE-A') {
-    return {
-      position: layoutToThree(4.0, -widthM * 1.15, ridgeM * 1.55),
-      target: layoutToThree(4.0, widthM * 0.48, 1.05),
-    }
-  }
-  return defaultCameraPose(lengthM, widthM, ridgeM)
-}

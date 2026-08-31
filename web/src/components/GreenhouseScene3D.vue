@@ -31,8 +31,8 @@ import {
   layoutX as lx,
   sunDirectionThree,
   threeXToLayout,
-  zoneCameraPose,
 } from '../scene/layoutCoords'
+import { unitLedAt } from '../scene/lampOptics'
 import {
   HEAT_CHANNEL_LABEL,
   SUN_SHARE,
@@ -50,7 +50,6 @@ const props = defineProps<{
   light: GhEffectiveLight | null
   /** 各区实时光场（作物模型 / 悬停气候按区取） */
   zoneLights?: Record<string, GhEffectiveLight | undefined>
-  focusZoneId?: string
   shadeOpenA?: number
   shadeOpenB?: number
   showHeat?: boolean
@@ -59,6 +58,8 @@ const props = defineProps<{
   /** 设备 SN → 告警/工单/离线等状态（驱动光晕） */
   deviceStatuses?: Record<string, DeviceSceneStatus>
   selectedDeviceSn?: string | null
+  /** 状态过滤：all | attention | alarm | wo | offline */
+  statusFilter?: 'all' | 'attention' | 'alarm' | 'wo' | 'offline'
 }>()
 
 const emit = defineEmits<{
@@ -70,8 +71,10 @@ const hostRef = ref<HTMLDivElement | null>(null)
 const assetSource = ref<'glb' | 'procedural' | 'loading'>('loading')
 /** X 光切片高度（m），滚轮调节 */
 const sliceZ = ref(0.92)
-const SLICE_Z_MIN = 0.45
-const SLICE_Z_MAX = 1.55
+const SLICE_Z_MIN = 0.4
+const SLICE_Z_MAX = 1.65
+const LOD_FAR = 22
+const LOD_NEAR = 17
 let assets: GhAssetPack | null = null
 let renderer: THREE.WebGLRenderer | null = null
 let scene: THREE.Scene | null = null
@@ -87,6 +90,9 @@ let sliceDragPointerId: number | null = null
 let shadeClothA: THREE.Mesh | null = null
 let shadeClothB: THREE.Mesh | null = null
 let sunLight: THREE.DirectionalLight | null = null
+let ambientLight: THREE.AmbientLight | null = null
+/** 棚内工作/月光补光：夜间抬高，保证植株与传感器可读 */
+let bayFillLight: THREE.PointLight | null = null
 let sunArrow: THREE.ArrowHelper | null = null
 let sunDisc: THREE.Mesh | null = null
 let hemiLight: THREE.HemisphereLight | null = null
@@ -95,25 +101,32 @@ let sunGroup: THREE.Group | null = null
 let lampGroup: THREE.Group | null = null
 let sensorGroup: THREE.Group | null = null
 let markerGroup: THREE.Group | null = null
+let clusterGroup: THREE.Group | null = null
 let structureKey = ''
 /** 首次建棚后不再强制拉回默认视角，避免轮询打断拖拽 */
 let structureCameraReady = false
-let focusedZoneKey = ''
 let deviceLayoutKey = ''
 let deviceVisualKey = ''
 let heatLayoutKey = ''
 let sunKey = ''
+/** 缓存上一档昼夜，供仅调补光强度时复用 */
+let lastNightBlend = -1
 let raf = 0
 let hoverRaf = 0
 let disposed = false
 let lastLight: GhEffectiveLight | null = null
 let deviceHitRoots: THREE.Object3D[] = []
+let clusterHitRoots: THREE.Object3D[] = []
 let statusGlowMats: THREE.MeshBasicMaterial[] = []
 let ptrDownX = 0
 let ptrDownY = 0
 let ptrDownT = 0
 /** 拖拽中跳过悬停拾取，保持跟手 */
 let orbitDragging = false
+/** true=远距床位聚合；false=近距单设备 */
+let lodClustered = false
+const lodClusteredUi = ref(false)
+let lodFrame = 0
 let heatGrid: {
   nx: number
   ny: number
@@ -271,11 +284,18 @@ const shadeWarn = computed(() => {
   return ''
 })
 
-const sliceHud = computed(() => {
-  const focus =
-    props.focusZoneId === 'ZONE-A' ? '西半跨' : props.focusZoneId === 'ZONE-B' ? '东半跨' : '整跨'
-  return `${channelHud.value} · ${focus} · z=${sliceZ.value.toFixed(2)} m`
-})
+const sliceHud = computed(() => `${channelHud.value} · 整跨切片 · z=${sliceZ.value.toFixed(2)} m`)
+
+function passesStatusFilter(tone: SceneStatusTone | undefined): boolean {
+  const f = props.statusFilter || 'all'
+  if (f === 'all') return true
+  const t = tone || 'ok'
+  if (f === 'attention') return t !== 'ok'
+  if (f === 'alarm') return t === 'alarm'
+  if (f === 'offline') return t === 'offline'
+  if (f === 'wo') return t === 'wo-pending' || t === 'wo-approved' || t === 'wo-progress'
+  return true
+}
 
 /** 已迁到 spectrumModel；保留别名避免旧引用 */
 
@@ -328,9 +348,9 @@ function makeSkyTexture(elev = 45): THREE.CanvasTexture {
   const ctx = c.getContext('2d')!
   const g = ctx.createLinearGradient(0, 0, 0, 256)
   if (elev < 2) {
-    g.addColorStop(0, '#0b1220')
-    g.addColorStop(0.55, '#1a2740')
-    g.addColorStop(1, '#3a4050')
+    g.addColorStop(0, '#152033')
+    g.addColorStop(0.55, '#2a3a52')
+    g.addColorStop(1, '#4a5568')
   } else if (elev < 18) {
     g.addColorStop(0, '#6a8ec8')
     g.addColorStop(0.45, '#f0b070')
@@ -553,12 +573,17 @@ function buildScene(el: HTMLDivElement) {
     orbitDragging = false
   })
 
-  scene.add(new THREE.AmbientLight(0xfff6e8, 0.28))
+  ambientLight = new THREE.AmbientLight(0xfff6e8, 0.32)
+  scene.add(ambientLight)
   sunLight = new THREE.DirectionalLight(0xfff1c8, 1.15)
   sunLight.position.set(4, 16, -14)
   scene.add(sunLight)
   hemiLight = new THREE.HemisphereLight(0xe8f4ff, 0x5a7a48, 0.48)
   scene.add(hemiLight)
+  // 棚脊下方点光源：夜间充当工作/月光补光，白天压到几乎无感
+  bayFillLight = new THREE.PointLight(0xd4e2f4, 0.2, 28, 1.6)
+  bayFillLight.position.set(lx(8), 2.6, 3.5)
+  scene.add(bayFillLight)
 
   skyDome = new THREE.Mesh(
     new THREE.SphereGeometry(80, 24, 16),
@@ -598,16 +623,20 @@ function buildScene(el: HTMLDivElement) {
   lampGroup = new THREE.Group()
   sensorGroup = new THREE.Group()
   markerGroup = new THREE.Group()
+  clusterGroup = new THREE.Group()
   sunGroup = new THREE.Group()
   scene.add(lampGroup)
   scene.add(sensorGroup)
   scene.add(markerGroup)
+  scene.add(clusterGroup)
   scene.add(sunGroup)
 
   const loop = () => {
     if (disposed) return
     raf = requestAnimationFrame(loop)
     controls?.update()
+    lodFrame++
+    if (lodFrame % 8 === 0) updateLodMode()
     if (statusGlowMats.length) {
       const pulse = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(performance.now() * 0.004))
       for (const m of statusGlowMats) m.opacity = pulse
@@ -883,11 +912,9 @@ function rebuildStructure(light: GhEffectiveLight) {
   scene.add(group)
   if (!structureCameraReady && camera && controls) {
     structureCameraReady = true
-    const focus = props.focusZoneId
-    const cam = focus ? zoneCameraPose(focus, L, W, H) : defaultCameraPose(L, W, H)
+    const cam = defaultCameraPose(L, W, H)
     controls.target.copy(cam.target)
     camera.position.copy(cam.position)
-    focusedZoneKey = focus || ''
   }
 }
 
@@ -964,13 +991,96 @@ function buildProceduralStructure(
   group.add(aisle)
 }
 
+function nightBlendFromElev(elev: number): number {
+  // 0=白昼，1=深夜；黄昏平滑过渡，保留昼夜叙事但不至于伸手不见五指
+  if (elev <= 0) return 1
+  if (elev >= 18) return 0
+  return 1 - elev / 18
+}
+
+function applyNightVisibility(elev: number, force = false) {
+  const night = nightBlendFromElev(elev)
+  if (!force && Math.abs(night - lastNightBlend) < 0.02) return
+  lastNightBlend = night
+
+  if (ambientLight) {
+    ambientLight.intensity = 0.32 + night * 0.62
+    ambientLight.color.set(night > 0.45 ? 0xb4c6de : 0xfff6e8)
+  }
+  if (hemiLight) {
+    if (elev > 15) {
+      hemiLight.intensity = 0.38 + (elev / 90) * 0.22
+      hemiLight.color.set(0xe8f4ff)
+      hemiLight.groundColor.set(0x5a7a48)
+    } else if (elev > 2) {
+      hemiLight.intensity = 0.36 + night * 0.2
+      hemiLight.color.set(0xffd8b0)
+      hemiLight.groundColor.set(0x5a7a48)
+    } else {
+      // 夜间：冷色环境光但保持可读，避免纯黑半球压死材质
+      hemiLight.intensity = 0.48 + night * 0.22
+      hemiLight.color.set(0x7a8eb0)
+      hemiLight.groundColor.set(0x3d4a42)
+    }
+  }
+  if (sunLight) {
+    if (elev > 2) {
+      sunLight.intensity = 0.4 + (elev / 90) * 1.25
+      sunLight.color.set(elev > 15 ? 0xfff1c8 : 0xffc090)
+    } else {
+      // 极弱月光轮廓，主要靠 ambient + bayFill
+      sunLight.intensity = 0.14 + night * 0.1
+      sunLight.color.set(0xa8b8d8)
+    }
+  }
+  if (bayFillLight) {
+    bayFillLight.intensity = 0.18 + night * 1.35
+    bayFillLight.color.set(night > 0.5 ? 0xc8daf0 : 0xfff2dc)
+    bayFillLight.distance = 26 + night * 6
+  }
+  if (renderer) {
+    renderer.toneMappingExposure = 1.05 + night * 0.42
+  }
+  if (scene?.fog instanceof THREE.Fog) {
+    // 夜间雾略退后、略浅，避免远处植株/传感器被吞掉
+    scene.fog.near = 28 + night * 10
+    scene.fog.far = 70 + night * 28
+  }
+
+  // 传感器 / 遮阳标记：夜间略增自发光，位置仍可辨
+  if (sensorGroup) {
+    for (const root of sensorGroup.children) {
+      root.traverse((obj) => {
+        const m = obj as THREE.Mesh
+        if (!m.isMesh || !m.material || Array.isArray(m.material)) return
+        const mat = m.material as THREE.MeshStandardMaterial
+        if ('emissiveIntensity' in mat) {
+          mat.emissiveIntensity = 0.35 + night * 0.85
+        }
+      })
+    }
+  }
+  if (markerGroup) {
+    for (const root of markerGroup.children) {
+      root.traverse((obj) => {
+        const m = obj as THREE.Mesh
+        if (!m.isMesh || !m.material || Array.isArray(m.material)) return
+        const mat = m.material as THREE.MeshStandardMaterial
+        if ('emissiveIntensity' in mat) {
+          mat.emissiveIntensity = 0.2 + night * 0.55
+        }
+      })
+    }
+  }
+}
+
 function updateSun(light: GhEffectiveLight) {
   if (!scene || !sunGroup || !sunLight) return
   const elev = Number(light.solarElevationDeg ?? 0)
   const az = Number(light.solarAzimuthDeg ?? 180)
   const key = `${elev.toFixed(1)}:${az.toFixed(1)}:${Number(light.outdoorParPpfd ?? 0).toFixed(0)}`
   if (key === sunKey && sunDisc) {
-    // 仅刷新强度类轻量字段时可跳过重建箭头
+    applyNightVisibility(elev)
     return
   }
   sunKey = key
@@ -997,14 +1107,8 @@ function updateSun(light: GhEffectiveLight) {
   sunLight.target.position.copy(center)
   if (!sunLight.target.parent) scene.add(sunLight.target)
   sunLight.target.updateMatrixWorld()
-  sunLight.intensity = elev > 2 ? 0.4 + (elev / 90) * 1.25 : 0.06
-  sunLight.color.set(elev > 15 ? 0xfff1c8 : elev > 2 ? 0xffc090 : 0x8899bb)
 
-  if (hemiLight) {
-    hemiLight.intensity = elev > 2 ? 0.38 + (elev / 90) * 0.22 : 0.16
-    hemiLight.color.set(elev > 15 ? 0xe8f4ff : elev > 2 ? 0xffd8b0 : 0x1a2740)
-    hemiLight.groundColor.set(elev > 2 ? 0x5a7a48 : 0x2a3030)
-  }
+  applyNightVisibility(elev, true)
 
   if (skyDome) {
     const mat = skyDome.material as THREE.MeshBasicMaterial
@@ -1012,7 +1116,8 @@ function updateSun(light: GhEffectiveLight) {
     mat.map = makeSkyTexture(elev)
     mat.needsUpdate = true
   }
-  const fogCol = elev < 2 ? 0x1a2740 : elev < 18 ? 0xf0c8a0 : 0xb8d4e8
+  // 夜间背景仍偏冷，但比纯墨蓝亮一档，便于轮廓辨认
+  const fogCol = elev < 2 ? 0x2c3a4f : elev < 18 ? 0xf0c8a0 : 0xb8d4e8
   scene.background = new THREE.Color(fogCol)
   if (scene.fog instanceof THREE.Fog) scene.fog.color.set(fogCol)
 
@@ -1032,6 +1137,10 @@ function updateSun(light: GhEffectiveLight) {
     scene.add(sunArrow)
     const lab = makeLabelSprite(`日光 ${elev.toFixed(0)}° · ${azimuthLabelZh(az)}`, 3.2)
     lab.position.copy(arrowOrigin).addScaledVector(rayDir, arrowLen * 0.55).add(new THREE.Vector3(0, 0.7, 0))
+    sunGroup.add(lab)
+  } else {
+    const lab = makeLabelSprite('夜间 · 棚内工作补光', 3.0)
+    lab.position.set(lx(L / 2), 3.2, W * 0.15)
     sunGroup.add(lab)
   }
 }
@@ -1110,7 +1219,7 @@ function sampleGridCells(
   return { ppfd, sun, led, r, g, b }
 }
 
-/** 在切片高度 z 上重算亮度，并按日光/补光光谱拆成 R/G/B */
+/** 在切片高度 z 上重算亮度：自然光取冠层网格，补光按灯位向下光束随高度变化 */
 function brightnessAtSlice(
   light: GhEffectiveLight,
   nx: number,
@@ -1133,45 +1242,29 @@ function brightnessAtSlice(
   const gCh = new Float32Array(nx * ny)
   const bCh = new Float32Array(nx * ny)
   const aisle = L / 2
-  const canopyZ = Number(light.measurePlaneZ) || 0.85
-  const nearCanopy = Math.abs(z - canopyZ) < 0.08
+  const canopyZ = Number(light.measurePlaneZ) || 0.9
+  const nearCanopy = Math.abs(z - canopyZ) < 0.04
   const hasBackendRgb = cells.r.some((v) => v > 0)
   const lamps = (light.devices || []).filter((d) => d.deviceType === 'GROW_LAMP' && d.posX != null)
-  const useGridOnly = nearCanopy && cells.ppfd.some((v) => v > 0)
   for (let iy = 0; iy < ny; iy++) {
     for (let ix = 0; ix < nx; ix++) {
       const i = iy * nx + ix
       const x = (ix / Math.max(1, nx - 1)) * L
       const y = (iy / Math.max(1, ny - 1)) * W
-      let ledSum = cells.led[i] ?? 0
-      if (!useGridOnly) {
-        ledSum = 0
-        for (const lamp of lamps) {
-          if (lamp.powerOn === false) continue
-          const dim = (lamp.dimmingPercent ?? 0) / 100
-          if (dim <= 0) continue
-          const lx = lamp.posX!
-          const ly = lamp.posY ?? y
-          const lz = lamp.posZ ?? 1.85
-          const dx = x - lx
-          const dy = y - ly
-          const dz = Math.max(0.15, lz - z)
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-          const cos = dz / dist
-          const halfAng = Math.cos((55 * Math.PI) / 180)
-          if (cos < halfAng * 0.85) {
-            const soft = Math.max(0, (cos - 0.05) / Math.max(0.2, halfAng))
-            if (soft < 0.05) continue
-          }
-          const maxCanopy = 150
-          const designH = (lamp.deviceSn || '').includes('L1') ? 0.35 : 0.85
-          const peak = maxCanopy * designH * designH
-          ledSum += (peak * cos) / (dist * dist) * dim
-        }
+      let ledSum = 0
+      for (const lamp of lamps) {
+        if (lamp.powerOn === false) continue
+        const dim = (lamp.dimmingPercent ?? 0) / 100
+        if (dim <= 0) continue
+        ledSum += unitLedAt(x, y, z, lamp) * dim
+      }
+      // 贴近测光面时优先用后端网格补光，避免客户端与仿真数值跳变
+      if (nearCanopy && (cells.led[i] ?? 0) > 0) {
+        ledSum = cells.led[i]
       }
       const sun = cells.sun[i] ?? 0
       led[i] = ledSum
-      bright[i] = useGridOnly ? (cells.ppfd[i] ?? sun + ledSum) : sun + ledSum
+      bright[i] = sun + ledSum
       if (nearCanopy && hasBackendRgb && cells.r[i] > 0) {
         const scale = cells.ppfd[i] > 1e-3 ? bright[i] / cells.ppfd[i] : 1
         rCh[i] = cells.r[i] * scale
@@ -1290,21 +1383,6 @@ function colorAtHeatIndex(
   else if (ch === 'B' && viewB) rgb = channelMonoColor(viewB[i], chRef, 'B')
   else if (ch === 'viridis') rgb = viridisColor(field.bright[i], chRef)
   else rgb = xrayColor(field.bright[i], chRef)
-
-  // 分区聚焦：非当前半跨热力压暗，切换下拉才有可见反馈
-  const focus = props.focusZoneId
-  if (focus === 'ZONE-A' || focus === 'ZONE-B') {
-    const ix = i % nx
-    const xEast = (ix / Math.max(1, nx - 1)) * L
-    const inFocus = focus === 'ZONE-A' ? xEast < 8 : xEast >= 8
-    if (!inFocus) {
-      return [
-        Math.round(rgb[0] * 0.28 + 180 * 0.12),
-        Math.round(rgb[1] * 0.28 + 185 * 0.12),
-        Math.round(rgb[2] * 0.28 + 190 * 0.12),
-      ]
-    }
-  }
   return rgb
 }
 
@@ -1464,7 +1542,11 @@ function syncDevices(light: GhEffectiveLight) {
     rebuildDevicePickables(light, W)
     return
   }
-  if (visual === deviceVisualKey) return
+  if (visual === deviceVisualKey) {
+    rebuildClusters(light)
+    applyLodVisibility()
+    return
+  }
 
   // 仅选中变化：就地换光晕，不清拾取体、不重建灯带
   const body = visual.slice(0, visual.lastIndexOf('#'))
@@ -1472,6 +1554,8 @@ function syncDevices(light: GhEffectiveLight) {
   if (body === prevBody) {
     deviceVisualKey = visual
     patchSelectionGlows()
+    rebuildClusters(light)
+    applyLodVisibility()
     return
   }
   deviceVisualKey = visual
@@ -1625,6 +1709,120 @@ function rebuildDevicePickables(light: GhEffectiveLight, W: number) {
 
   // 原子替换：避免重建中途 deviceHitRoots 为空导致点选失败
   deviceHitRoots = nextHits
+  rebuildClusters(light)
+  applyLodVisibility()
+  const elev = Number(light.solarElevationDeg ?? lastLight?.solarElevationDeg ?? 0)
+  applyNightVisibility(elev, true)
+}
+
+function toneRank(t: SceneStatusTone): number {
+  if (t === 'alarm') return 50
+  if (t === 'offline') return 40
+  if (t === 'wo-pending') return 30
+  if (t === 'wo-approved') return 20
+  if (t === 'wo-progress') return 10
+  return 0
+}
+
+function bedForDevice(d: { posX?: number | null; posY?: number | null; zoneId?: string }): (typeof BEDS)[number] | null {
+  if (d.posX == null || d.posY == null) return null
+  return (
+    BEDS.find(
+      (b) =>
+        (!d.zoneId || b.zoneId === d.zoneId) &&
+        d.posX! >= b.x0 &&
+        d.posX! <= b.x1 &&
+        d.posY! >= b.y0 &&
+        d.posY! <= b.y1,
+    ) || null
+  )
+}
+
+function rebuildClusters(light: GhEffectiveLight) {
+  if (!clusterGroup) return
+  while (clusterGroup.children.length) clusterGroup.remove(clusterGroup.children[0])
+  clusterHitRoots = []
+  const byBed = new Map<
+    string,
+    { bed: (typeof BEDS)[number]; count: number; tone: SceneStatusTone; sn: string }
+  >()
+  for (const d of light.devices || []) {
+    if (d.deviceType === 'SHADE_ACTUATOR') continue
+    const st = props.deviceStatuses?.[d.deviceSn]
+    const tone = (st?.tone || 'ok') as SceneStatusTone
+    if (!passesStatusFilter(tone)) continue
+    const bed = bedForDevice(d)
+    if (!bed) continue
+    const cur = byBed.get(bed.bedId)
+    if (!cur) {
+      byBed.set(bed.bedId, { bed, count: 1, tone, sn: d.deviceSn })
+    } else {
+      cur.count++
+      if (toneRank(tone) > toneRank(cur.tone)) {
+        cur.tone = tone
+        cur.sn = d.deviceSn
+      }
+    }
+  }
+  for (const row of byBed.values()) {
+    const root = new THREE.Group()
+    root.position.set(lx(row.bed.x), 1.55, row.bed.z)
+    root.userData = {
+      deviceSn: row.sn,
+      deviceType: 'CLUSTER',
+      zoneId: row.bed.zoneId,
+      bedId: row.bed.bedId,
+      pickDevice: true,
+    }
+    const color = STATUS_GLOW_HEX[row.tone]
+    const disc = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+      }),
+    )
+    disc.userData = { ...root.userData }
+    root.add(disc)
+    const label = makeLabelSprite(`${row.bed.roleZh} · ${row.count}`, 1.8)
+    label.position.set(0, 0.35, 0)
+    root.add(label)
+    clusterGroup.add(root)
+    clusterHitRoots.push(disc)
+  }
+}
+
+function updateLodMode() {
+  if (!camera || !controls) return
+  const dist = camera.position.distanceTo(controls.target)
+  const next = lodClustered ? dist > LOD_NEAR : dist > LOD_FAR
+  if (next === lodClustered) {
+    applyLodVisibility()
+    return
+  }
+  lodClustered = next
+  lodClusteredUi.value = next
+  applyLodVisibility()
+}
+
+function applyLodVisibility() {
+  const detail = !lodClustered
+  if (lampGroup) lampGroup.visible = detail
+  if (sensorGroup) sensorGroup.visible = detail
+  if (markerGroup) markerGroup.visible = detail
+  if (clusterGroup) clusterGroup.visible = !detail
+  if (detail) {
+    for (const g of [lampGroup, sensorGroup, markerGroup]) {
+      if (!g) continue
+      for (const root of g.children) {
+        const sn = root.userData.deviceSn as string | undefined
+        const tone = (props.deviceStatuses?.[sn || '']?.tone || 'ok') as SceneStatusTone
+        root.visible = passesStatusFilter(tone)
+      }
+    }
+  }
 }
 
 function placeShadeMarker(
@@ -1691,8 +1889,9 @@ function fillDeviceHover(
 }
 
 function pickDeviceFromRay(): { deviceSn: string; deviceType?: string; zoneId?: string } | null {
-  if (!deviceHitRoots.length) return null
-  const hits = raycaster.intersectObjects(deviceHitRoots, false)
+  const roots = lodClustered ? clusterHitRoots : deviceHitRoots
+  if (!roots.length) return null
+  const hits = raycaster.intersectObjects(roots, false)
   if (!hits.length) return null
   const ud = hits[0].object.userData
   if (!ud?.deviceSn) return null
@@ -1907,18 +2106,8 @@ function onSliceInput(ev: Event) {
   if (lastLight) updateHeatmap(lastLight)
 }
 
-function applyFocusZone(force = false) {
-  if (!camera || !controls) return
-  const focus = props.focusZoneId || ''
-  if (!force && focus === focusedZoneKey) return
-  focusedZoneKey = focus
-  const L = Number(lastLight?.lengthM) || 16
-  const W = Number(lastLight?.widthM) || 7
-  const H = Number(lastLight?.ridgeHeightM) || 3.8
-  const cam = focus ? zoneCameraPose(focus, L, W, H) : defaultCameraPose(L, W, H)
-  camera.position.copy(cam.position)
-  controls.target.copy(cam.target)
-  controls.update()
+function setSlicePreset(z: number) {
+  sliceZ.value = z
   if (lastLight) updateHeatmap(lastLight)
 }
 
@@ -1997,7 +2186,7 @@ watch(
 )
 
 watch(
-  () => [props.deviceStatuses, props.selectedDeviceSn] as const,
+  () => [props.deviceStatuses, props.selectedDeviceSn, props.statusFilter] as const,
   () => {
     if (!lastLight) return
     syncDevices(lastLight)
@@ -2016,11 +2205,6 @@ watch(
     structureKey = ''
     if (props.light) apply(props.light)
   },
-)
-
-watch(
-  () => props.focusZoneId,
-  () => applyFocusZone(true),
 )
 </script>
 
@@ -2117,6 +2301,11 @@ watch(
           @input="onSliceInput"
         />
       </label>
+      <div class="slice-presets">
+        <button type="button" class="preset" @click="setSlicePreset(0.9)">L0 冠层 0.90</button>
+        <button type="button" class="preset" @click="setSlicePreset(1.2)">L1 搁架 1.20</button>
+      </div>
+      <p class="lod-hint">{{ lodClusteredUi ? '远距 · 床位聚合' : '近距 · 单设备' }}</p>
       <div class="scale">
         <div class="bar"><i class="grad" :class="heatChannel" /></div>
         <div class="ticks mono">
@@ -2199,6 +2388,27 @@ watch(
   accent-color: var(--accent);
   pointer-events: auto;
   cursor: pointer;
+}
+.slice-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.2rem;
+  pointer-events: auto;
+}
+.slice-presets .preset {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ink);
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.lod-hint {
+  margin: 0;
+  font-size: 0.62rem;
+  color: var(--ink-soft);
 }
 .crop-tip {
   position: absolute;
