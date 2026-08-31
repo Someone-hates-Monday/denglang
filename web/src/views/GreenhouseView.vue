@@ -352,7 +352,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="ui-page ui-page-fill gh">
+  <div class="ui-page ui-page-fill gh" :class="{ 'charts-open': lowerTab === 'charts' }">
     <p v-if="err" class="err">{{ err }} · 请确认后端已启动（:8080）</p>
     <p v-if="roleBanner" class="role-banner">
       <span class="role-pill">{{ ROLE_LABEL[normalizeRole(auth.role)] }}</span>
@@ -608,6 +608,7 @@ onUnmounted(() => {
             :anchor-series="chartBundle.anchor"
             :layers="chartBundle.layers"
             :minute-of-day="minuteOfDay"
+            :show-outdoor="chartScope === 'zone'"
           />
         </div>
         <div class="ui-card chart-wrap" v-else>
@@ -926,14 +927,30 @@ onUnmounted(() => {
 }
 
 .lower {
-  flex: 0 0 auto;
-  max-height: min(52vh, 520px);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.gh.charts-open .scene-card {
+  flex: 0 1 38vh;
+  min-height: 220px;
+  max-height: 42vh;
+}
+
+.gh.charts-open .lower {
+  flex: 1 1 280px;
+  min-height: 260px;
+  max-height: none;
 }
 
 .charts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3);
+  padding-bottom: var(--space-4);
 }
 
 .overview-wrap {

@@ -1483,6 +1483,8 @@ function onPointerMove(ev: PointerEvent) {
 
 function onWheel(ev: WheelEvent) {
   if (props.showHeat === false) return
+  // 普通滚轮交给 OrbitControls 缩放；Alt+滚轮 才调整切片高度
+  if (!ev.altKey) return
   ev.preventDefault()
   const step = ev.deltaY > 0 ? -0.05 : 0.05
   sliceZ.value = Math.max(SLICE_Z_MIN, Math.min(SLICE_Z_MAX, +(sliceZ.value + step).toFixed(2)))
@@ -1618,7 +1620,7 @@ watch(
     <aside class="hud">
       <p class="sun">{{ sunHud }}</p>
       <p class="model">{{ modelHud }} · {{ sliceHud }}</p>
-      <p class="hint">面北视角：西左东右 · 南为采光侧；日光矢量与仿真 sunModel 同步</p>
+      <p class="hint">面北视角：西左东右 · 南为采光侧 · <strong>滚轮缩放</strong> · <strong>Alt+滚轮</strong> 调切片</p>
       <p v-if="shadeWarn" class="warn">{{ shadeWarn }}</p>
       <label class="slice-slider">
         <span>切片高度</span>
