@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   greenhouseApi,
+  type DaySeriesPoint,
   type GhEffectiveLight,
   type GhRecipe,
   type GhWorkOrder,
@@ -11,8 +12,15 @@ import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
 import GreenhouseScene3D from '../components/GreenhouseScene3D.vue'
 import DayCurvesChart from '../components/DayCurvesChart.vue'
+import RegionLightOverview from '../components/RegionLightOverview.vue'
 import { HEAT_CHANNEL_LABEL, type HeatChannel } from '../scene/spectrumModel'
 import { ROLE_LABEL, normalizeRole } from '../auth/rbac'
+import {
+  buildChartLayers,
+  buildRegionRows,
+  type ChartScope,
+  type RegionRow,
+} from '../scene/dayCurveLayers'
 
 const auth = useAuthStore()
 const realtime = useRealtimeStore()
@@ -39,6 +47,9 @@ const showHeat = ref(true)
 const heatChannel = ref<HeatChannel>('rgb')
 const heatChannels: HeatChannel[] = ['rgb', 'R', 'G', 'B', 'viridis', 'xray']
 const lowerTab = ref<'none' | 'charts' | 'orders'>('none')
+const chartScope = ref<ChartScope>('bay')
+const chartFocusId = ref('BAY')
+const chartFocusBedId = ref<string | undefined>()
 const err = ref('')
 let poll: number | undefined
 
@@ -96,8 +107,97 @@ const bayLight = computed((): GhEffectiveLight | null => {
   }
 })
 
-const series = computed(() => light.value?.series ?? [])
-const dayPct = computed(() => Math.round((light.value?.dayProgress ?? 0) * 100))
+const minuteOfDay = computed(() => light.value?.minuteOfDay ?? lights.value['ZONE-A']?.minuteOfDay ?? 0)
+const dayPct = computed(() => Math.round((minuteOfDay.value / 1440) * 100))
+
+const regionRows = computed(() => buildRegionRows(lights.value))
+
+const chartBundle = computed(() =>
+  buildChartLayers(chartScope.value, lights.value, zoneId.value, chartFocusBedId.value),
+)
+
+const controlLayers = computed(() => buildChartLayers('control', lights.value, zoneId.value).layers)
+
+const gapLayers = computed(() => {
+  if (chartScope.value === 'bay') {
+    const layers: typeof chartBundle.value.layers = []
+    for (const z of ['ZONE-A', 'ZONE-B'] as const) {
+      const el = lights.value[z]
+      if (!el?.series?.length) continue
+      layers.push({
+        id: `${z}-gap`,
+        label: `${z === 'ZONE-A' ? '西半跨' : '东半跨'} 缺口 Δ`,
+        color: z === 'ZONE-A' ? '#0071e3' : '#34c759',
+        series: el.series,
+        getValue: (p: DaySeriesPoint) => p.gapPpfd ?? 0,
+        width: 2,
+      })
+    }
+    const avg = buildChartLayers('bay', lights.value, zoneId.value).layers.find((l) => l.id === 'BAY-AVG')
+    if (avg) {
+      layers.push({
+        ...avg,
+        id: 'BAY-gap',
+        label: '整跨平均缺口',
+        getValue: (p: DaySeriesPoint) => p.gapPpfd ?? 0,
+        dashed: true,
+      })
+    }
+    return layers
+  }
+  if (chartScope.value === 'beds') {
+    return chartBundle.value.layers.map((l) => ({
+      ...l,
+      getValue: (p: DaySeriesPoint) => {
+        const v = p.bedPpfd?.[l.id]
+        const mid = p.targetMid ?? ((p.targetPpfdMin ?? 0) + (p.targetPpfdMax ?? 0)) / 2
+        return v != null ? v - mid : 0
+      },
+    }))
+  }
+  return buildChartLayers('zone', lights.value, zoneId.value).layers.filter((l) => l.id === 'gap')
+})
+
+const chartTitles: Record<ChartScope, string> = {
+  bay: '整跨 · 东西半跨 PAR 对比',
+  zone: '当前半跨 · 自然 / 补光 / 调控',
+  beds: '六床分床 PAR',
+  sensors: '单床三测点 PAR',
+  control: '分区遮阳 / 补光策略',
+}
+
+function onRegionSelect(row: RegionRow) {
+  chartFocusId.value = row.id
+  if (row.kind === 'bay') {
+    chartScope.value = 'bay'
+    chartFocusBedId.value = undefined
+  } else if (row.kind === 'zone' && row.zoneId) {
+    chartScope.value = 'zone'
+    zoneId.value = row.zoneId
+    chartFocusBedId.value = undefined
+  } else if (row.kind === 'bed' && row.bedId) {
+    chartScope.value = 'beds'
+    chartFocusBedId.value = row.bedId
+    if (row.zoneId) zoneId.value = row.zoneId
+  }
+}
+
+function setChartScope(scope: ChartScope) {
+  chartScope.value = scope
+  if (scope === 'bay') {
+    chartFocusId.value = 'BAY'
+    chartFocusBedId.value = undefined
+  } else if (scope === 'zone') {
+    chartFocusId.value = zoneId.value
+    chartFocusBedId.value = undefined
+  } else if (scope === 'beds') {
+    chartFocusId.value = chartFocusBedId.value ?? 'BED-A-M'
+    chartFocusBedId.value = chartFocusId.value
+  } else if (scope === 'sensors') {
+    chartFocusBedId.value = chartFocusBedId.value ?? 'BED-A-M'
+    chartFocusId.value = chartFocusBedId.value
+  }
+}
 const pendingOrders = computed(() => orders.value.filter((o) => o.status === 'PENDING'))
 
 async function refresh() {
@@ -128,8 +228,22 @@ async function refresh() {
   }
 }
 
+const dendrobiumRecipes = computed(() =>
+  recipes.value.filter((r) => r.recipeId.toLowerCase().includes('dendrobium')),
+)
+
+const bayRecipeId = computed(() => {
+  const a = lights.value['ZONE-A']?.recipeId
+  const b = lights.value['ZONE-B']?.recipeId
+  return a && b && a !== b ? a : a || b || ''
+})
+
 async function onRecipe(e: Event) {
-  await greenhouseApi.bindRecipe(zoneId.value, (e.target as HTMLSelectElement).value)
+  const id = (e.target as HTMLSelectElement).value
+  await Promise.all([
+    greenhouseApi.bindRecipe('ZONE-A', id),
+    greenhouseApi.bindRecipe('ZONE-B', id),
+  ])
   await refresh()
 }
 
@@ -216,6 +330,12 @@ function clockLabel(minute: number) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
+watch(chartFocusBedId, (id) => {
+  if (id && (chartScope.value === 'sensors' || chartScope.value === 'beds')) {
+    chartFocusId.value = id
+  }
+})
+
 watch(
   () => realtime.greenhouseTick,
   () => refresh(),
@@ -232,7 +352,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="ui-page ui-page-fill gh">
+  <div class="ui-page ui-page-fill gh" :class="{ 'charts-open': lowerTab === 'charts' }">
     <p v-if="err" class="err">{{ err }} · 请确认后端已启动（:8080）</p>
     <p v-if="roleBanner" class="role-banner">
       <span class="role-pill">{{ ROLE_LABEL[normalizeRole(auth.role)] }}</span>
@@ -249,8 +369,8 @@ onUnmounted(() => {
         </label>
         <label class="field" v-if="auth.can('recipe.bind')">
           <span>配方</span>
-          <select class="ui-select" :value="light?.recipeId" @change="onRecipe">
-            <option v-for="r in recipes" :key="r.recipeId" :value="r.recipeId">
+          <select class="ui-select" :value="bayRecipeId" @change="onRecipe">
+            <option v-for="r in dendrobiumRecipes" :key="r.recipeId" :value="r.recipeId">
               {{ r.cropNameZh }} · {{ r.stage }}
             </option>
           </select>
@@ -304,10 +424,10 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="clock mono" v-if="light">
-        <strong>{{ clockLabel(light.minuteOfDay) }}</strong>
+      <div class="clock mono" v-if="light || lights['ZONE-A']">
+        <strong>{{ clockLabel(minuteOfDay) }}</strong>
         <div class="track"><i :style="{ width: dayPct + '%' }" /></div>
-        <span class="muted">{{ dayPct }}% · 整跨 A+B</span>
+        <span class="muted">{{ dayPct }}% · 仿真日进度</span>
       </div>
     </div>
 
@@ -441,20 +561,93 @@ onUnmounted(() => {
 
     <div class="ui-scroll-panel lower" v-if="lowerTab === 'charts'">
       <div class="charts">
-        <div class="ui-card chart-wrap">
+        <div class="ui-card chart-wrap overview-wrap">
+          <RegionLightOverview
+            :rows="regionRows"
+            :selected-id="chartFocusId"
+            @select="onRegionSelect"
+          />
+        </div>
+
+        <div class="chart-toolbar">
+          <span class="toolbar-label">日曲线视角</span>
+          <div class="scope-group">
+            <button
+              v-for="s in (
+                [
+                  ['bay', '整跨对比'],
+                  ['zone', '半跨详情'],
+                  ['beds', '六床'],
+                  ['sensors', '测点'],
+                  ['control', '控光策略'],
+                ] as const
+              )"
+              :key="s[0]"
+              type="button"
+              class="ui-btn ui-btn-ghost ui-btn-compact"
+              :data-on="chartScope === s[0]"
+              @click="setChartScope(s[0])"
+            >
+              {{ s[1] }}
+            </button>
+          </div>
+          <label v-if="chartScope === 'sensors'" class="field sensor-pick">
+            <span>床</span>
+            <select v-model="chartFocusBedId" class="ui-select">
+              <option v-for="b in regionRows.filter((r) => r.kind === 'bed')" :key="b.bedId!" :value="b.bedId">
+                {{ b.label }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <div class="ui-card chart-wrap" v-if="chartScope !== 'control'">
           <DayCurvesChart
-            title="光照与此刻目标带"
+            :title="chartTitles[chartScope]"
             mode="light"
-            :series="series"
-            :minute-of-day="light?.minuteOfDay ?? 0"
+            :anchor-series="chartBundle.anchor"
+            :layers="chartBundle.layers"
+            :minute-of-day="minuteOfDay"
+            :show-outdoor="chartScope === 'zone'"
+          />
+        </div>
+        <div class="ui-card chart-wrap" v-else>
+          <DayCurvesChart
+            :title="chartTitles.control"
+            mode="control"
+            :anchor-series="chartBundle.anchor"
+            :layers="controlLayers"
+            :minute-of-day="minuteOfDay"
+          />
+        </div>
+        <div
+          class="ui-card chart-wrap"
+          v-if="chartScope !== 'control' && gapLayers.length"
+        >
+          <DayCurvesChart
+            title="距理想目标带偏差（ΔPAR）"
+            mode="gap"
+            :anchor-series="chartBundle.anchor"
+            :layers="gapLayers"
+            :minute-of-day="minuteOfDay"
+          />
+        </div>
+        <div class="ui-card chart-wrap" v-if="chartScope !== 'control'">
+          <DayCurvesChart
+            title="分区遮阳 % · 补光 %"
+            mode="control"
+            :anchor-series="chartBundle.anchor"
+            :layers="controlLayers"
+            :minute-of-day="minuteOfDay"
           />
         </div>
         <div class="ui-card chart-wrap">
           <DayCurvesChart
-            title="湿度 / 温度"
+            title="湿度 / 温度（当前半跨）"
             mode="climate"
-            :series="series"
-            :minute-of-day="light?.minuteOfDay ?? 0"
+            :anchor-series="chartBundle.anchor"
+            :series="light?.series"
+            :minute-of-day="minuteOfDay"
           />
         </div>
       </div>
@@ -734,14 +927,65 @@ onUnmounted(() => {
 }
 
 .lower {
-  flex: 0 0 auto;
-  max-height: min(28vh, 240px);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.gh.charts-open .scene-card {
+  flex: 0 1 38vh;
+  min-height: 220px;
+  max-height: 42vh;
+}
+
+.gh.charts-open .lower {
+  flex: 1 1 280px;
+  min-height: 260px;
+  max-height: none;
 }
 
 .charts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3);
+  padding-bottom: var(--space-4);
+}
+
+.overview-wrap {
+  grid-column: 1 / -1;
+}
+
+.chart-toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.toolbar-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.scope-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sensor-pick {
+  margin-left: auto;
+}
+
+.sensor-pick .ui-select {
+  min-width: 7rem;
+  padding: 4px 8px;
+  font-size: var(--text-sm);
 }
 
 .chart-wrap {

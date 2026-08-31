@@ -1,6 +1,7 @@
 {
   "layoutId": "cq-demo-bay-v1",
-  "version": "1.1",
+  "version": "1.2-aesthetic-a",
+  "aesthetic": "stylized-ag-tech",
   "coordinate": {
     "origin": "SW",
     "x": "east",
@@ -18,17 +19,11 @@
     "bed-dendrobium.glb": {
       "role": "bedUnit",
       "crop": "dendrobium",
-      "localOrigin": "bedCenter"
-    },
-    "bed-anoectochilus.glb": {
-      "role": "bedUnit",
-      "crop": "anoectochilus",
-      "localOrigin": "bedCenter"
-    },
-    "bed-strawberry.glb": {
-      "role": "bedUnit",
-      "crop": "strawberry",
-      "localOrigin": "bedCenter"
+      "localOrigin": "bedCenter",
+      "tiers": [
+        "tier-l0",
+        "tier-l1"
+      ]
     },
     "lamp-bar.glb": {
       "role": "fixture",
@@ -40,36 +35,56 @@
       {
         "id": "BED-A-S",
         "x": 4,
-        "z": 1.4
+        "z": 1.4,
+        "tiers": [
+          "l0"
+        ]
       },
       {
         "id": "BED-A-M",
         "x": 4,
-        "z": 3.5
+        "z": 3.5,
+        "tiers": [
+          "l0",
+          "l1"
+        ]
       },
       {
         "id": "BED-A-N",
         "x": 4,
-        "z": 5.6
+        "z": 5.6,
+        "tiers": [
+          "l0",
+          "l1"
+        ]
       }
     ],
     "ZONE_B": [
       {
         "id": "BED-B-S",
         "x": 12,
-        "z": 1.4
+        "z": 1.4,
+        "tiers": [
+          "l0"
+        ]
       },
       {
         "id": "BED-B-M",
         "x": 12,
-        "z": 3.5
+        "z": 3.5,
+        "tiers": [
+          "l0"
+        ]
       },
       {
         "id": "BED-B-N",
         "x": 12,
-        "z": 5.6
+        "z": 5.6,
+        "tiers": [
+          "l0"
+        ]
       }
     ]
   },
-  "replaceWithBlender": "用 Blender 精修后覆盖同名 GLB；保持原点与轴向，见 docs/greenhouse/GLB-PIPELINE.md"
+  "notesZh": "方案 A：统一低多边形 stylized 资产；tier-l1 仅西半跨中北床启用"
 }

@@ -119,7 +119,8 @@ public final class LightFieldModel {
                 double x = margin + (ix + 0.5) * usableL / nx;
                 double y = margin + (iy + 0.5) * usableW / ny;
                 double sunOcc = sunOcclusion(x, y, measureZ, elev, az, diffuseF, occluders);
-                double dirF = (1.0 - diffuseF) * GreenhouseGeometry.bedSunFactor(y, false, az, elev) * sunOcc;
+                double ewF = GreenhouseGeometry.bedSunFactorEastWest(x, length, az, elev, diffuseProfile);
+                double dirF = (1.0 - diffuseF) * GreenhouseGeometry.bedSunFactor(y, false, az, elev) * sunOcc * ewF;
                 double difF = diffuseF * GreenhouseGeometry.bedSunFactor(y, true, az, elev);
                 double sunIn = eBase * (dirF + difF);
                 double led = lampContribution(x, y, measureZ, lamps, occluders);
@@ -162,7 +163,8 @@ public final class LightFieldModel {
             double y = s.getPosY() != null ? s.getPosY().doubleValue() : width / 2;
             double z = s.getPosZ() != null ? s.getPosZ().doubleValue() : measureZ;
             double sunOcc = sunOcclusion(x, y, z, elev, az, diffuseF, occluders);
-            double dirF = (1.0 - diffuseF) * GreenhouseGeometry.bedSunFactor(y, false, az, elev) * sunOcc;
+            double ewF = GreenhouseGeometry.bedSunFactorEastWest(x, length, az, elev, diffuseProfile);
+            double dirF = (1.0 - diffuseF) * GreenhouseGeometry.bedSunFactor(y, false, az, elev) * sunOcc * ewF;
             double difF = diffuseF * GreenhouseGeometry.bedSunFactor(y, true, az, elev);
             double sunIn = eBase * (dirF + difF);
             double led = lampContribution(x, y, z, lamps, occluders);
@@ -194,6 +196,11 @@ public final class LightFieldModel {
         Map<String, Object> sunModel = new LinkedHashMap<>();
         sunModel.put("elevationDeg", Math.round(elev * 10.0) / 10.0);
         sunModel.put("azimuthDeg", Math.round(az * 10.0) / 10.0);
+        sunModel.put("azimuthConvention", "from_north_clockwise_deg");
+        double[] sunDir = GreenhouseGeometry.sunDirectionEnu(az, elev);
+        sunModel.put("dirEast", Math.round(sunDir[0] * 1000.0) / 1000.0);
+        sunModel.put("dirNorth", Math.round(sunDir[1] * 1000.0) / 1000.0);
+        sunModel.put("dirUp", Math.round(sunDir[2] * 1000.0) / 1000.0);
         sunModel.put("elevFactor", Math.round(elevFactor * 1000.0) / 1000.0);
         sunModel.put("diffuseFraction", Math.round(diffuseF * 1000.0) / 1000.0);
         sunModel.put("outdoorPar", Math.round(outdoorPar * 10.0) / 10.0);
@@ -228,12 +235,10 @@ public final class LightFieldModel {
         if (elevDeg < 2 || diffuseF > 0.8) {
             return 1.0;
         }
-        double el = Math.toRadians(elevDeg);
-        double az = Math.toRadians(azFromNorth);
-        // 光来向的反方向：从点指向太阳
-        double dx = Math.sin(az) * Math.cos(el);
-        double dy = Math.cos(az) * Math.cos(el);
-        double dz = Math.sin(el);
+        double[] towardSun = GreenhouseGeometry.sunDirectionEnu(azFromNorth, elevDeg);
+        double dx = towardSun[0];
+        double dy = towardSun[1];
+        double dz = towardSun[2];
         double atten = 1.0;
         for (GreenhouseGeometry.BedBox b : occluders) {
             if (b.zTop() <= z + 0.05) {

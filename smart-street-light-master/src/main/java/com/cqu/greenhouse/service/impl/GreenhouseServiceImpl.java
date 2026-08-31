@@ -508,9 +508,21 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
                         recipeSample, simMinuteOfDay, tempC, humidity, dli.doubleValue());
                 sample.put("targetPpfdMin", round(dyn.instantMin()));
                 sample.put("targetPpfdMax", round(dyn.instantMax()));
+                sample.put("targetMid", round((dyn.instantMin() + dyn.instantMax()) / 2.0));
+                sample.put("gapPpfd", round(field.effectivePpfd() - (dyn.instantMin() + dyn.instantMax()) / 2.0));
                 sample.put("vpdKpa", round(dyn.vpdKpa() * 1000.0) / 1000.0);
                 sample.put("dliSoFar", round(dli.doubleValue() * 1000.0) / 1000.0);
             }
+            Map<String, Double> bedPpfd = new LinkedHashMap<>();
+            for (var e : field.bedStats().entrySet()) {
+                bedPpfd.put(e.getKey(), round(e.getValue().avgPpfd()));
+            }
+            sample.put("bedPpfd", bedPpfd);
+            Map<String, Double> sensorSeries = new LinkedHashMap<>();
+            for (var e : field.sensorPpfd().entrySet()) {
+                sensorSeries.put(e.getKey(), round(e.getValue()));
+            }
+            sample.put("sensorPpfd", sensorSeries);
             daySeries.computeIfAbsent(zone.getZoneId(), k -> new ArrayList<>()).add(sample);
             List<Map<String, Object>> series = daySeries.get(zone.getZoneId());
             if (series.size() > SERIES_CAP) {

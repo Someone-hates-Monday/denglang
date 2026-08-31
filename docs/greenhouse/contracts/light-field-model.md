@@ -31,7 +31,16 @@
 | coverTransmittance | 膜/PC 透光 τ_cover（0–1） |
 | measurePlaneZ | 冠层测光平面高度（m）；ZONE-B 可用 0.45 |
 
-坐标系：西南角原点，+X 东、+Y 北、+Z 上；长轴东西、正午光自南入。详见布局文档 §1。
+坐标系：西南角原点，+X 东、+Y 北、+Z 上；Three 场景为 `(X, Z, Y)`。方位角 **自北顺时针**（°），正午 ≈180°（偏南）。`sunModel.dirEast/dirNorth/dirUp` 与场景日光箭头同源。
+
+自然光项（直射 + 漫射，v1.3.1 起含东西向直射微调）：
+
+```
+E_base = E_out × τ_cover × τ_shade × sin(elevation)
+E_sun  = E_base × [(1−f_dif)×bedSun×sunOcclusion×bedEastWest + f_dif×bedSunDiffuse]
+```
+
+`shadeClosedFraction = 1 - shadeOpenPercent/100`。雾天 `f_dif` 升高，南北差缩小。
 
 ---
 
@@ -44,15 +53,6 @@
 - 半角 55°；床体/搁架遮挡；**分床**调光  
 - 外遮阳半跨：`SHADE-ZONE-A` / `SHADE-ZONE-B`，Z≈3.50  
 - 网格：`nx=32, ny=14, marginM=0.25`
-
-自然光项（直射 + 漫射）：
-
-```
-E_base = E_out × τ_cover × τ_shade × sin(elevation)
-E_sun  = E_base × [(1−f_dif)×bedSun×sunOcclusion + f_dif×bedSunDiffuse]
-```
-
-`shadeClosedFraction = 1 - shadeOpenPercent/100`。雾天 `f_dif` 升高，南北差缩小。
 
 ---
 

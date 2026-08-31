@@ -59,14 +59,14 @@
     { "bedId": "BED-A-N", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 5.2, "y1": 6.0, "zTop": 0.90, "tier": "L0" },
     { "bedId": "BED-A-M-L1", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 3.1, "y1": 3.9, "zTop": 1.35, "tier": "L1" },
     { "bedId": "BED-A-N-L1", "zoneId": "ZONE-A", "x0": 0.5, "x1": 7.5, "y0": 5.2, "y1": 6.0, "zTop": 1.35, "tier": "L1" },
-    { "bedId": "BED-B-S", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 1.0, "y1": 1.8, "zTop": 0.78, "tier": "L0" },
-    { "bedId": "BED-B-M", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 3.1, "y1": 3.9, "zTop": 0.78, "tier": "L0" },
-    { "bedId": "BED-B-N", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 5.2, "y1": 6.0, "zTop": 0.78, "tier": "L0" }
+    { "bedId": "BED-B-S", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 1.0, "y1": 1.8, "zTop": 0.90, "tier": "L0" },
+    { "bedId": "BED-B-M", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 3.1, "y1": 3.9, "zTop": 0.90, "tier": "L0" },
+    { "bedId": "BED-B-N", "zoneId": "ZONE-B", "x0": 8.5, "x1": 15.5, "y0": 5.2, "y1": 6.0, "zTop": 0.90, "tier": "L0" }
   ],
   "zones": [
     {
       "zoneId": "ZONE-A",
-      "nameZh": "A区·铁皮石斛",
+      "nameZh": "西半跨·石斛",
       "cropDefault": "dendrobium-officinale",
       "bounds": { "x0": 0.5, "x1": 7.5, "y0": 0.8, "y1": 6.2 },
       "canopyHeightM": 0.9,
@@ -112,40 +112,40 @@
     },
     {
       "zoneId": "ZONE-B",
-      "nameZh": "B区·金线莲/草莓切换",
-      "cropDefault": "anoectochilus-formosanus",
+      "nameZh": "东半跨·石斛",
+      "cropDefault": "dendrobium-officinale",
       "bounds": { "x0": 8.5, "x1": 15.5, "y0": 0.8, "y1": 6.2 },
-      "canopyHeightM": 0.78,
-      "measurePlaneZ": 0.78,
+      "canopyHeightM": 0.9,
+      "measurePlaneZ": 0.9,
       "stacking": [
-        { "tier": "L0", "z": 0.55, "roleZh": "金线莲密植或草莓高架槽（切换）" }
+        { "tier": "L0", "z": 0.55, "roleZh": "栽培层高架苗床（与西半跨同作物）" }
       ],
       "beds": [
-        { "bedId": "BED-B-S", "y0": 1.0, "y1": 1.8, "zBed": 0.55, "role": "south", "cropProxy": "anoectochilus_mat" },
-        { "bedId": "BED-B-M", "y0": 3.1, "y1": 3.9, "zBed": 0.55, "role": "mid", "cropProxy": "anoectochilus_mat" },
-        { "bedId": "BED-B-N", "y0": 5.2, "y1": 6.0, "zBed": 0.55, "role": "north", "cropProxy": "anoectochilus_mat" }
+        { "bedId": "BED-B-S", "y0": 1.0, "y1": 1.8, "zBed": 0.55, "role": "south", "cropProxy": "dendrobium_pot" },
+        { "bedId": "BED-B-M", "y0": 3.1, "y1": 3.9, "zBed": 0.55, "role": "mid", "cropProxy": "dendrobium_pot" },
+        { "bedId": "BED-B-N", "y0": 5.2, "y1": 6.0, "zBed": 0.55, "role": "north", "cropProxy": "dendrobium_pot" }
       ],
       "lamps": [
-        { "deviceSn": "LAMP-ZONE-B-01", "x": 9.75, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
-        { "deviceSn": "LAMP-ZONE-B-02", "x": 12.00, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
-        { "deviceSn": "LAMP-ZONE-B-03", "x": 14.25, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
-        { "deviceSn": "LAMP-ZONE-B-04", "x": 9.75, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
-        { "deviceSn": "LAMP-ZONE-B-05", "x": 12.00, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
-        { "deviceSn": "LAMP-ZONE-B-06", "x": 14.25, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
-        { "deviceSn": "LAMP-ZONE-B-07", "x": 9.75, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] },
-        { "deviceSn": "LAMP-ZONE-B-08", "x": 12.00, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] },
-        { "deviceSn": "LAMP-ZONE-B-09", "x": 14.25, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 80, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] }
+        { "deviceSn": "LAMP-ZONE-B-01", "x": 9.75, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
+        { "deviceSn": "LAMP-ZONE-B-02", "x": 12.00, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
+        { "deviceSn": "LAMP-ZONE-B-03", "x": 14.25, "y": 1.40, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-S"] },
+        { "deviceSn": "LAMP-ZONE-B-04", "x": 9.75, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
+        { "deviceSn": "LAMP-ZONE-B-05", "x": 12.00, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
+        { "deviceSn": "LAMP-ZONE-B-06", "x": 14.25, "y": 3.50, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-M"] },
+        { "deviceSn": "LAMP-ZONE-B-07", "x": 9.75, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] },
+        { "deviceSn": "LAMP-ZONE-B-08", "x": 12.00, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] },
+        { "deviceSn": "LAMP-ZONE-B-09", "x": 14.25, "y": 5.60, "z": 1.85, "maxPpfdAtCanopy": 95, "beamHalfAngleDeg": 55, "aim": [0, 0, -1], "servesBeds": ["BED-B-N"] }
       ],
       "sensors": [
-        { "deviceSn": "PAR-ZONE-B-01", "x": 9.75, "y": 1.40, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
-        { "deviceSn": "PAR-ZONE-B-02", "x": 12.00, "y": 1.40, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
-        { "deviceSn": "PAR-ZONE-B-03", "x": 14.25, "y": 1.40, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
-        { "deviceSn": "PAR-ZONE-B-04", "x": 9.75, "y": 3.50, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
-        { "deviceSn": "PAR-ZONE-B-05", "x": 12.00, "y": 3.50, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
-        { "deviceSn": "PAR-ZONE-B-06", "x": 14.25, "y": 3.50, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
-        { "deviceSn": "PAR-ZONE-B-07", "x": 9.75, "y": 5.60, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
-        { "deviceSn": "PAR-ZONE-B-08", "x": 12.00, "y": 5.60, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
-        { "deviceSn": "PAR-ZONE-B-09", "x": 14.25, "y": 5.60, "z": 0.78, "type": "PAR_SENSOR", "bedId": "BED-B-N" }
+        { "deviceSn": "PAR-ZONE-B-01", "x": 9.75, "y": 1.40, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-02", "x": 12.00, "y": 1.40, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-03", "x": 14.25, "y": 1.40, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-S" },
+        { "deviceSn": "PAR-ZONE-B-04", "x": 9.75, "y": 3.50, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-05", "x": 12.00, "y": 3.50, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-06", "x": 14.25, "y": 3.50, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-M" },
+        { "deviceSn": "PAR-ZONE-B-07", "x": 9.75, "y": 5.60, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
+        { "deviceSn": "PAR-ZONE-B-08", "x": 12.00, "y": 5.60, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-N" },
+        { "deviceSn": "PAR-ZONE-B-09", "x": 14.25, "y": 5.60, "z": 0.90, "type": "PAR_SENSOR", "bedId": "BED-B-N" }
       ],
       "shades": [
         { "deviceSn": "SHADE-ZONE-B", "x": 12.0, "y": 6.7, "z": 3.5, "coverX0": 8, "coverX1": 16, "layer": "EXTERNAL", "maxBlockFraction": 0.85, "rollFrom": "north" }

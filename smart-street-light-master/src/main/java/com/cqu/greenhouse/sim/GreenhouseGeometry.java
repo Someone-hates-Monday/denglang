@@ -29,10 +29,37 @@ public final class GreenhouseGeometry {
     }
 
     public static double measurePlaneZ(String zoneId) {
-        if ("ZONE-B".equals(zoneId)) {
-            return 0.78;
-        }
         return 0.90;
+    }
+
+    /**
+     * 自北顺时针方位角下的太阳方向单位向量（布局 ENU：东、北、上）。
+     * 与前端 {@code layoutCoords.sunDirectionEnu}、Three 场景日光箭头一致。
+     */
+    public static double[] sunDirectionEnu(double azFromNorthDeg, double elevationDeg) {
+        double az = Math.toRadians(azFromNorthDeg);
+        double el = Math.toRadians(elevationDeg);
+        double horiz = Math.cos(el);
+        return new double[]{
+                Math.sin(az) * horiz,
+                Math.cos(az) * horiz,
+                Math.sin(el)
+        };
+    }
+
+    /**
+     * 东西向直射微调：上午偏东时东端（+X）略强，下午偏西时西端略强。
+     * 对齐 GREENHOUSE-LAYOUT §1.1「上午 +X 侧略强」。
+     */
+    public static double bedSunFactorEastWest(double x, double lengthM, double azFromNorth,
+                                              double elevDeg, boolean diffuse) {
+        if (diffuse || elevDeg < 3 || lengthM < 1) {
+            return 1.0;
+        }
+        double sunEast = Math.sin(Math.toRadians(azFromNorth));
+        double along = (x / lengthM - 0.5) * 2.0;
+        double w = solarElevationFactor(elevDeg);
+        return 1.0 + 0.05 * sunEast * along * w;
     }
 
     public static double[] solarElevationAzimuth(double minuteOfDay, String climateProfileId) {

@@ -16,6 +16,9 @@ export type BedCropSpec = {
   roleZh: string
 }
 
+/** MVP 演示：整跨单作物，不混种（ZONE-A/B 仅为半跨控光分区） */
+export const BAY_SINGLE_CROP: CropKey = 'dendrobium'
+
 export const CROP_META: Record<
   CropKey,
   { nameZh: string; glb: string; color: number; shortZh: string }
@@ -49,13 +52,16 @@ export const BEDS: BedCropSpec[] = [
   { bedId: 'BED-B-N', zoneId: 'ZONE-B', x: 12, z: 5.6, x0: 8.5, x1: 15.5, y0: 5.2, y1: 6.0, roleZh: '北床' },
 ]
 
-/** 由配方 id 解析作物种类 */
-export function cropKeyFromRecipeId(recipeId: string | undefined | null, zoneId: string): CropKey {
-  const id = (recipeId || '').toLowerCase()
-  if (id.includes('fragaria') || id.includes('strawberry')) return 'strawberry'
-  if (id.includes('anoectochilus')) return 'anoectochilus'
-  if (id.includes('dendrobium')) return 'dendrobium'
-  return zoneId === 'ZONE-B' ? 'anoectochilus' : 'dendrobium'
+/** 石斛 L1 组培/炼苗搁架：仅中床、北床（南床留强自然光对照） */
+export const L1_BED_IDS = new Set(['BED-A-M', 'BED-A-N'])
+
+export function bedHasL1Tier(bedId: string): boolean {
+  return L1_BED_IDS.has(bedId)
+}
+
+/** 由配方 id 解析作物种类（3D 演示冻结为整跨石斛） */
+export function cropKeyFromRecipeId(_recipeId: string | undefined | null, _zoneId: string): CropKey {
+  return BAY_SINGLE_CROP
 }
 
 export function cropLabel(recipe: GhRecipe | undefined, zoneId: string, recipeId?: string): {
