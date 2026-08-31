@@ -41,6 +41,7 @@
 - 动态目标（光周期 / VPD / DLI 追赶）
 - 性价比 AUTO：欠光先开遮阳，过光先降灯；economics（产量指数/电费/建议）
 - 冠层 X 光切片 + 作物悬停实况
+- **v1.3 布灯**：每床 3 灯抬高净空、光束角、床架遮挡、**分床调光**（见 [LIGHTING-UPGRADE-v1.3.md](./docs/greenhouse/LIGHTING-UPGRADE-v1.3.md)）
 
 **已知未兑现（A 轨 P0）：** AUTO 大开度仍直发、approve 仍立即下发——见 CONFORMANCE §4 / §6。
 

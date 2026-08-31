@@ -8,7 +8,8 @@
 |------|------|
 | [GREENHOUSE-LAYOUT.md](./GREENHOUSE-LAYOUT.md) | **棚体空间设计真源**（边界/朝向） |
 | [GREENHOUSE-DESIGN-DETAILED.md](./GREENHOUSE-DESIGN-DETAILED.md) | **细化设计**：叠层作物、灯感对应、遮阳材料/卷向、3D 技术路线 |
-| [layouts/cq-demo-bay-v1.json](./layouts/cq-demo-bay-v1.json) | 机器可读坐标（v1.1） |
+| [LIGHTING-UPGRADE-v1.3.md](./LIGHTING-UPGRADE-v1.3.md) | **A 轨**：布灯/测点/遮挡/分床控光升级 |
+| [layouts/cq-demo-bay-v1.json](./layouts/cq-demo-bay-v1.json) | 机器可读坐标（**v1.3**） |
 | [PROJECT.md](./PROJECT.md) | 项目描述 |
 | [TEAM-DIVISION.md](./TEAM-DIVISION.md) | **双轨分工** A 控光 / B 角色页面 |
 | [CONFORMANCE.md](./CONFORMANCE.md) | 符合性核查 + P0–P3 方案 |
@@ -17,6 +18,8 @@
 | [SUBMIT.md](./SUBMIT.md) | 提交与验收清单 |
 | [IMPLEMENT.md](./IMPLEMENT.md) | 本地启动与已实现 |
 | [RESEARCH-SOLUTION.md](./RESEARCH-SOLUTION.md) | 作物/方案调研 |
+| [CROP-ECONOMICS-STANDARDS-REF.md](./CROP-ECONOMICS-STANDARDS-REF.md) | **作物产量·价值·电费·规范**参考汇编（含真实性核对） |
+| [SOLUTIONS-LAYOUT-LIGHT-SIM-REF.md](./SOLUTIONS-LAYOUT-LIGHT-SIM-REF.md) | **Blender/排布/布灯传感/光模拟**外部方案借鉴清单 |
 | [PRD-MVP.md](./PRD-MVP.md) | MoSCoW / 验收 |
 | [HARDWARE-BOM.md](./HARDWARE-BOM.md) | 商购型号 |
 | [contracts/mqtt.md](./contracts/mqtt.md) | MQTT |

@@ -182,6 +182,7 @@ export function makeGlbLamp(
 ): THREE.Object3D {
   if (assets.lamp) {
     const g = assets.lamp.clone(true)
+    g.scale.setScalar(0.55)
     g.position.set(x, z, y)
     g.traverse((obj) => {
       const m = obj as THREE.Mesh
@@ -194,7 +195,7 @@ export function makeGlbLamp(
     return g
   }
   const bar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.045, 0.12),
+    new THREE.BoxGeometry(0.35, 0.03, 0.08),
     new THREE.MeshStandardMaterial({
       color: 0x1d1d1f,
       emissive: 0xffcc55,

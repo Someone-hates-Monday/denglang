@@ -57,6 +57,7 @@ Agent/RAG：只读，不挡 Must。
 - [x] `cq-demo-bay-v1` 几何与设备坐标  
 - [x] 物理遮阳 + 粗档 + 三色补光 + 动态目标 + economics  
 - [x] 冠层 3D / 切片 / 作物悬停  
+- [x] **v1.3** 密布灯抬高 + 遮挡光场 + 分床 AUTO（LIGHTING-UPGRADE）  
 - [ ] **P0.1** AUTO ≥ 阈值 → PENDING（不直发）  
 - [ ] **P0.3** approve 只审批；执行/完成才下发  
 - [ ] **P0.2** 遮阳大档可进工单  

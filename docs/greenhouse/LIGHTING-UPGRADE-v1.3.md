@@ -150,8 +150,8 @@ I = maxPpfd × (H_design²) × cosθ / dist² × dim%
 ## 7. 工程同步清单
 
 - [x] 本文 + JSON v1.3  
-- [ ] SQL migration 更新/插入灯与 PAR  
-- [ ] `LightFieldModel` 直射漫射拆分 + 遮挡 + 光束角  
-- [ ] `applyRules` 分床调光  
-- [ ] 前端灯尺寸 + 切片光学对齐  
-- [ ] `light-field-model.md` / `GREENHOUSE-LAYOUT` §4–5 摘要更新  
+- [x] SQL migration `V20260831_layout_v1_3_lighting.sql`  
+- [x] `LightFieldModel` 直射漫射拆分 + 遮挡 + 光束角  
+- [x] `applyRules` 分床调光  
+- [x] 前端灯尺寸 + 切片光学对齐  
+- [x] `light-field-model.md` / `GREENHOUSE-LAYOUT` §4–5 摘要更新  
