@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { api } from '../api/client'
 import { useLatestRequest, useRowAction } from '../composables/useLatestRequest'
 import { useRealtimeStore } from '../stores/realtime'

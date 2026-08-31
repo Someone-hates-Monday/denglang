@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
 import { isMockMode } from '../config/runtime'
 import BrandIcon from '../components/BrandIcon.vue'
+import AgriAgent from '../components/AgriAgent.vue'
 
 const auth = useAuthStore()
 const realtime = useRealtimeStore()
@@ -94,9 +95,11 @@ async function onLogout() {
           <strong>新告警</strong>
           <p>{{ realtime.latestAlarm.deviceName }} · {{ realtime.latestAlarm.message }}</p>
         </div>
-        <button type="button" class="toast-close" @click="realtime.clearAlarmToast()">关闭</button>
+                <button type="button" class="toast-close" @click="realtime.clearAlarmToast()">关闭</button>
       </div>
     </Transition>
+
+    <AgriAgent />
   </div>
 </template>
 
