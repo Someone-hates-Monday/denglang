@@ -1,7 +1,8 @@
 # 智慧光棚 · 排布 / 灯光传感 / 光照模拟 · 解决方案参考
 
 > 版本：`v1.0` · 2026-08-31 · **借鉴清单，非改布局真源**  
-> 布局真源仍以 [`layouts/cq-demo-bay-v1.json`](./layouts/cq-demo-bay-v1.json) + [LIGHTING-UPGRADE-v1.3.md](./LIGHTING-UPGRADE-v1.3.md) 为准。  
+> 布局真源仍以 [`layouts/cq-demo-bay-v1.json`](./layouts/cq-demo-bay-v1.json)（**version 1.4**）+ 演进说明 [LIGHTING-UPGRADE-v1.3.md](./LIGHTING-UPGRADE-v1.3.md) 为准。  
+> 运行时对齐：`GreenhouseGeometry` · `V20260831_layout_v1_4_real_scale.sql` · `web/src/scene/dayCurveLayers.ts`。  
 > 已有摘录：[RESEARCH-SOLUTION.md](./RESEARCH-SOLUTION.md) §3 · [GREENHOUSE-DESIGN-DETAILED.md](./GREENHOUSE-DESIGN-DETAILED.md) §7 · [GLB-PIPELINE.md](./GLB-PIPELINE.md)
 
 ---
@@ -11,8 +12,8 @@
 | 层 | 本仓库现状 | 文档 |
 |----|------------|------|
 | 植物排布 | 东西向 3 床/半跨；**整跨石斛** L0；西半跨 L0+L1（同种叠层） | LAYOUT / DESIGN-DETAILED §3.0 |
-| 布灯 | v1.3：每床 3 灯、Z=1.85、半角 55°、分床控 | LIGHTING-UPGRADE |
-| 传感 | 每床 3×PAR，与灯 XY 对齐；冠层测面 | 同上 + BOM |
+| 布灯 | **v1.4**：每床 5 段灯带、Z=1.85、半角 55°、单段峰值≈58、分床控 | SQL `V20260831_layout_v1_4_real_scale` |
+| 传感 | 每床 5×PAR，与灯 XY 对齐；冠层测面 | 同上 + BOM |
 | 光模拟 MVP | 解析：日光直射/漫射 + 逆平方×光束 + 床遮挡；网格伪彩 | `LightFieldModel` |
 | 3D 资产 | Three.js 程序化 + 可选 GLB（`npm run bake:glb`）；Blender 精修路径已写 | GLB-PIPELINE |
 | Stretch | Radiance/HLS 离线烘焙；响应矩阵 A·d | RESEARCH / light-field-model |
@@ -79,13 +80,13 @@ layouts/cq-demo-bay-v1.json  (米·西南角·+X东 +Y上 +Z北)
 1. **床长轴 || 灯条长轴（东西）** → 统一灯距、易分床控。  
 2. **南床 / 北床自然光梯度** → 显均匀度与补光价值（重庆雾天仍有南北差叙事）。  
 3. **走道不布主灯正下方** → 减无效功耗（中央通道 7.5–8.5 m）。  
-4. **叠层必独立测光** → L1 遮挡 L0（v1.3 已做 soft occlusion）。
+4. **叠层必独立测光** → L1 遮挡 L0（v1.4 仍用 soft occlusion）。
 
 ---
 
 ## 3. 灯光布置方案（外部 → 本棚）
 
-| 来源 | 布置要点 | 与本项目 v1.3 | 建议动作 |
+| 来源 | 布置要点 | 与本项目 v1.4 | 建议动作 |
 |------|----------|---------------|----------|
 | 园艺工程经验 | 安装高度按**冠层**计；升高→重叠↑、峰值↓；用网格 U₀ 验收 | 净空 **0.95 m**；U₀≥0.6 演示目标 | 保持；报告对比「试验近距 15 cm vs 本设计均匀度优先」 |
 | 草莓 LED 试验（红颜） | 灯距冠层约 **15 cm**；PPFD 约 250–490；红蓝 9/1 增产最大；**动态补光**电能效率约 2.6× | 配方目标带 250–400；AUTO 按缺口调 | 控制策略对齐「动态」；几何不必抄 15 cm（热点风险） |
@@ -112,7 +113,7 @@ layouts/cq-demo-bay-v1.json  (米·西南角·+X东 +Y上 +Z北)
 
 | 来源 / 原则 | 要点 | 本项目 | 缺口 / 建议 |
 |-------------|------|--------|-------------|
-| **与执行器同构** | 测点服务「验证灯下 + 床面均匀度」 | 每床 3 PAR，XY≈灯位 | 已对齐 v1.3 |
+| **与执行器同构** | 测点服务「验证灯下 + 床面均匀度」 | 每床 5 PAR，XY≈灯位 | 已对齐 v1.4 |
 | **冠层平面** | 量子传感器在冠层顶，非走道、非地坪 | Z=测光面；3D 为托盘环 | 保持 |
 | **科研标定** | Apogee SQ-500 / LI-COR LI-190R | BOM 已列；MVP 用 `sim.par` | 答辩声明仿真 vs 真机 |
 | **均匀度指标** | U₀=min/avg；或 (max−min)/avg | bedStats.uniformityU0；告警预留 | 前端可标红 U₀&lt;0.55 |
@@ -159,14 +160,14 @@ layouts/cq-demo-bay-v1.json  (米·西南角·+X东 +Y上 +Z北)
 
 ## 6. 一页对照：外部最佳实践 vs `cq-demo-bay-v1`
 
-| 维度 | 外部共识 / 标杆 | 本棚 v1.3 | 是否需改真源 |
+| 维度 | 外部共识 / 标杆 | 本棚 v1.4 | 是否需改真源 |
 |------|-----------------|-----------|--------------|
 | 3D 栈 | Blender→GLB→Web；光学另算 | 已对齐 | 否 |
 | 床方向 | 槽/床东西向 + 吊灯平行 | 已对齐 | 否 |
 | 灯高 | 试验常近冠层；工程求均匀则抬高 | **0.95 m 净空**（均匀度优先） | 否（答辩讲清取舍） |
-| 灯密度 | 一槽多灯或连续光条 | 3 灯/床 | 否 |
+| 灯密度 | 一槽多灯或连续光条 | **5 段灯带/床**（单段≈58） | 否 |
 | 控制分区 | 环带 / 行 / 床 | **分床** | 否 |
-| PAR | 冠层多点 | 3/床 + L1 | 否 |
+| PAR | 冠层多点 | **5/床** + L1（西） | 否 |
 | 光模拟 | 平面 PPFD +（可选）叶面 | 平面网格 + 床遮挡 | Should：矩阵 A |
 | 草莓近距补光 | ~15 cm 高 PPFD | 几何不采用 | 否；配方目标仍可追 |
 

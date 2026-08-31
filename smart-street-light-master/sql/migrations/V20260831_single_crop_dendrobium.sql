@@ -6,8 +6,13 @@ WHERE zone_id = 'ZONE-A';
 
 UPDATE gh_zones
 SET name = '东半跨·石斛',
-    recipe_id = 'dendrobium-officinale-cultivation-v1'
+    recipe_id = 'dendrobium-officinale-cultivation-v1',
+    climate_profile_id = 'cq-winter-clear'
 WHERE zone_id = 'ZONE-B';
+
+UPDATE gh_zones
+SET climate_profile_id = 'cq-winter-clear'
+WHERE zone_id = 'ZONE-A';
 
 -- B 区测点与 A 对齐到石斛冠层 0.90 m
 UPDATE gh_devices SET pos_z = 0.90

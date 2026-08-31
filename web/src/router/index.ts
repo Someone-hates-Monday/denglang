@@ -24,21 +24,19 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: () => homePathFor(useAuthStore().role) },
       {
         path: 'dashboard',
-        name: 'dashboard',
-        component: () => import('../views/DashboardView.vue'),
-        meta: { title: '场务总览', caps: ['dash.view'] },
+        redirect: '/greenhouse',
       },
       {
         path: 'greenhouse',
         name: 'greenhouse',
         component: () => import('../views/GreenhouseView.vue'),
-        meta: { title: '冠层光场', caps: ['gh.view'] },
+        meta: { title: '场务光场', caps: ['gh.view'] },
       },
       {
         path: 'devices',
         name: 'devices',
         component: () => import('../views/DevicesView.vue'),
-        meta: { title: '设备', caps: ['dev.debug'] },
+        meta: { title: '设备', caps: ['dev.view', 'dev.debug', 'dev.crud'] },
       },
       {
         path: 'reports',
@@ -78,10 +76,6 @@ router.beforeEach((to) => {
   const caps = to.meta.caps as Capability[] | undefined
   if (caps?.length) {
     const r = normalizeRole(auth.role)
-    // 设备页仅运维 / 系统（与导航一致）
-    if (to.name === 'devices' && r !== 'DEVICE_OPS' && r !== 'SYS_ADMIN') {
-      return auth.homePath
-    }
     if (!caps.some((c) => can(r, c))) return auth.homePath
   }
   return true

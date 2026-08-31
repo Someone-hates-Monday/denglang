@@ -20,7 +20,7 @@ export const LED_SHARE_BY_CROP: Record<string, RgbShare> = {
 export type HeatChannel = 'xray' | 'viridis' | 'rgb' | 'R' | 'G' | 'B'
 
 export const HEAT_CHANNEL_LABEL: Record<HeatChannel, string> = {
-  xray: 'X光亮度',
+  xray: '光照',
   viridis: 'Viridis',
   rgb: '三色合成',
   R: '红 R',
@@ -81,7 +81,23 @@ export function viridisColor(v: number, maxRef: number): [number, number, number
 
 export function xrayColor(v: number, maxRef: number): [number, number, number] {
   const t = Math.max(0, Math.min(1, v / Math.max(maxRef, 1)))
-  return [Math.round(8 + t * 210), Math.round(14 + t * 235), Math.round(18 + t * 245)]
+  // 白 → 红：低光照浅、高光照红
+  return [255, Math.round(255 * (1 - t) * 0.92), Math.round(255 * (1 - t) * 0.88)]
+}
+
+/**
+ * 单通道显示值：抬高补光相对日光的贡献，避免灯关/日光主导时 R/G/B 热力几乎同形。
+ * （日光份额接近均匀 → 通道图 ∝ 总 PPFD；灯下红蓝偏置才是「分波段补足」的可见证据）
+ */
+export function emphasizeLedChannel(
+  channelPpfd: number,
+  sunPpfd: number,
+  sunShareFrac: number,
+  ledBoost = 2.8,
+): number {
+  const sunPart = Math.max(0, sunPpfd) * sunShareFrac
+  const ledPart = Math.max(0, channelPpfd - sunPart)
+  return sunPart + ledPart * ledBoost
 }
 
 export function channelMonoColor(
@@ -102,13 +118,17 @@ export function rgbCompositeColor(
   g: number,
   b: number,
   maxRef: number,
+  sunPpfd = 0,
+  ledBoost = 2.2,
 ): [number, number, number] {
+  const er = emphasizeLedChannel(r, sunPpfd, SUN_SHARE.r, ledBoost)
+  const eg = emphasizeLedChannel(g, sunPpfd, SUN_SHARE.g, ledBoost)
+  const eb = emphasizeLedChannel(b, sunPpfd, SUN_SHARE.b, ledBoost)
   const s = Math.max(maxRef, 1)
-  // 略抬增益，使低光仍可见；限幅到 255
   const gain = 1.35
   return [
-    Math.min(255, Math.round((r / s) * 255 * gain)),
-    Math.min(255, Math.round((g / s) * 255 * gain)),
-    Math.min(255, Math.round((b / s) * 255 * gain)),
+    Math.min(255, Math.round(28 + (er / s) * 227 * gain)),
+    Math.min(255, Math.round(36 + (eg / s) * 219 * gain)),
+    Math.min(255, Math.round(48 + (eb / s) * 207 * gain)),
   ]
 }

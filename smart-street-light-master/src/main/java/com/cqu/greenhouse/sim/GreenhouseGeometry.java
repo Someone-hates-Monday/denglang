@@ -77,13 +77,17 @@ public final class GreenhouseGeometry {
         double sinEl = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
         sinEl = Math.max(-1, Math.min(1, sinEl));
         double elev = Math.toDegrees(Math.asin(sinEl));
-        // 方位：从北顺时针；演示简化为 6–18 时东→南→西扫过
-        double azFromNorth = 180;
-        if (elev > 0) {
-            double t = (minuteOfDay - 360) / 720.0;
-            t = Math.max(0, Math.min(1, t));
-            azFromNorth = 90 + t * 180;
-        } else {
+        // 方位：自北顺时针。atan2(sin H, cos H·sin φ − tan δ·cos φ) 正午为 0，再 +180 → 南。
+        double azRad = Math.atan2(
+                Math.sin(hourAngle),
+                Math.cos(hourAngle) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat));
+        double azFromNorth = Math.toDegrees(azRad) + 180.0;
+        if (azFromNorth < 0) {
+            azFromNorth += 360.0;
+        } else if (azFromNorth >= 360.0) {
+            azFromNorth -= 360.0;
+        }
+        if (elev < 0) {
             elev = 0;
         }
         return new double[]{elev, azFromNorth};
@@ -150,32 +154,40 @@ public final class GreenhouseGeometry {
         return bedSunFactor(y, diffuse, 180, diffuse ? 30 : 45);
     }
 
+    /** 园艺红蓝灯带 HORTI_BAR_RB_150：冠层峰值 150，覆盖栽培带 90–120 */
     public static double lampMaxPpfdAtCanopy(String deviceSn) {
-        if (deviceSn == null) {
-            return 95.0;
-        }
-        if (deviceSn.contains("L1")) {
-            return 55.0;
-        }
-        if (deviceSn.contains("ZONE-B")) {
-            return 80.0;
-        }
-        return 95.0;
+        return 150.0;
     }
 
     public static double beamHalfAngleDeg(String deviceSn) {
-        if (deviceSn != null && deviceSn.contains("L1")) {
-            return 50.0;
+        if (deviceSn != null && (deviceSn.contains("L1") || isUnderShelfLamp(deviceSn))) {
+            return 65.0;
         }
         return 55.0;
     }
 
-    /** 设计净空（灯心到名义冠层），用于逆平方归一 */
+    /** 设计净空（灯心到名义冠层），用于逆平方归一；须与安装高度一致 */
     public static double designClearanceM(String deviceSn) {
         if (deviceSn != null && deviceSn.contains("L1")) {
-            return 0.80;
+            return 0.35;
         }
-        return 0.95;
+        if (isUnderShelfLamp(deviceSn)) {
+            return 0.30;
+        }
+        return 0.85;
+    }
+
+    /** 中/北床 L0：灯装在 L1 搁架下方 */
+    public static boolean isUnderShelfLamp(String deviceSn) {
+        if (deviceSn == null || deviceSn.contains("L1") || !deviceSn.contains("LAMP-")) {
+            return false;
+        }
+        String n = deviceSn.replaceAll(".*?(\\d+)$", "$1");
+        try {
+            return Integer.parseInt(n) >= 6;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     public static double diffuseFraction(String climateProfileId) {
@@ -203,18 +215,20 @@ public final class GreenhouseGeometry {
 
     public static List<BedBox> bedOccluders(String zoneId) {
         List<BedBox> list = new ArrayList<>();
-        // L1 搁架对下层直射/补光有遮挡
+        // L1 搁架对下层直射/补光有遮挡；L0 床宽 1.2 m（v1.4）
         if ("ZONE-A".equals(zoneId) || zoneId == null) {
-            list.add(new BedBox("BED-A-M-L1", 0.5, 7.5, 3.1, 3.9, 1.35, 0.32, 0.35));
-            list.add(new BedBox("BED-A-N-L1", 0.5, 7.5, 5.2, 6.0, 1.35, 0.32, 0.35));
-            list.add(new BedBox("BED-A-S", 0.5, 7.5, 1.0, 1.8, 0.90, 0.55, 0.40));
-            list.add(new BedBox("BED-A-M", 0.5, 7.5, 3.1, 3.9, 0.90, 0.55, 0.40));
-            list.add(new BedBox("BED-A-N", 0.5, 7.5, 5.2, 6.0, 0.90, 0.55, 0.40));
+            list.add(new BedBox("BED-A-M-L1", 0.5, 7.5, 2.90, 4.10, 1.35, 0.32, 0.35));
+            list.add(new BedBox("BED-A-N-L1", 0.5, 7.5, 5.00, 6.20, 1.35, 0.32, 0.35));
+            list.add(new BedBox("BED-A-S", 0.5, 7.5, 0.80, 2.00, 0.90, 0.55, 0.40));
+            list.add(new BedBox("BED-A-M", 0.5, 7.5, 2.90, 4.10, 0.90, 0.55, 0.40));
+            list.add(new BedBox("BED-A-N", 0.5, 7.5, 5.00, 6.20, 0.90, 0.55, 0.40));
         }
         if ("ZONE-B".equals(zoneId) || zoneId == null) {
-            list.add(new BedBox("BED-B-S", 8.5, 15.5, 1.0, 1.8, 0.78, 0.55, 0.40));
-            list.add(new BedBox("BED-B-M", 8.5, 15.5, 3.1, 3.9, 0.78, 0.55, 0.40));
-            list.add(new BedBox("BED-B-N", 8.5, 15.5, 5.2, 6.0, 0.78, 0.55, 0.40));
+            list.add(new BedBox("BED-B-M-L1", 8.5, 15.5, 2.90, 4.10, 1.35, 0.32, 0.35));
+            list.add(new BedBox("BED-B-N-L1", 8.5, 15.5, 5.00, 6.20, 1.35, 0.32, 0.35));
+            list.add(new BedBox("BED-B-S", 8.5, 15.5, 0.80, 2.00, 0.90, 0.55, 0.40));
+            list.add(new BedBox("BED-B-M", 8.5, 15.5, 2.90, 4.10, 0.90, 0.55, 0.40));
+            list.add(new BedBox("BED-B-N", 8.5, 15.5, 5.00, 6.20, 0.90, 0.55, 0.40));
         }
         return list;
     }
@@ -238,14 +252,22 @@ public final class GreenhouseGeometry {
 
     public static BedBox l0Box(String bedId) {
         return switch (bedId) {
-            case "BED-A-S" -> new BedBox(bedId, 0.5, 7.5, 1.0, 1.8, 0.90, 0.55, 0.40);
-            case "BED-A-M" -> new BedBox(bedId, 0.5, 7.5, 3.1, 3.9, 0.90, 0.55, 0.40);
-            case "BED-A-N" -> new BedBox(bedId, 0.5, 7.5, 5.2, 6.0, 0.90, 0.55, 0.40);
-            case "BED-B-S" -> new BedBox(bedId, 8.5, 15.5, 1.0, 1.8, 0.78, 0.55, 0.40);
-            case "BED-B-M" -> new BedBox(bedId, 8.5, 15.5, 3.1, 3.9, 0.78, 0.55, 0.40);
-            case "BED-B-N" -> new BedBox(bedId, 8.5, 15.5, 5.2, 6.0, 0.78, 0.55, 0.40);
+            case "BED-A-S" -> new BedBox(bedId, 0.5, 7.5, 0.80, 2.00, 0.90, 0.55, 0.40);
+            case "BED-A-M" -> new BedBox(bedId, 0.5, 7.5, 2.90, 4.10, 0.90, 0.55, 0.40);
+            case "BED-A-N" -> new BedBox(bedId, 0.5, 7.5, 5.00, 6.20, 0.90, 0.55, 0.40);
+            case "BED-B-S" -> new BedBox(bedId, 8.5, 15.5, 0.80, 2.00, 0.90, 0.55, 0.40);
+            case "BED-B-M" -> new BedBox(bedId, 8.5, 15.5, 2.90, 4.10, 0.90, 0.55, 0.40);
+            case "BED-B-N" -> new BedBox(bedId, 8.5, 15.5, 5.00, 6.20, 0.90, 0.55, 0.40);
             default -> null;
         };
+    }
+
+    /** 与灯同位编号的 PAR 测点（layout v1.4：LAMP-ZONE-A-01 ↔ PAR-ZONE-A-01） */
+    public static String lampParSensorSn(String lampSn) {
+        if (lampSn == null || !lampSn.startsWith("LAMP-")) {
+            return null;
+        }
+        return "PAR-" + lampSn.substring(5);
     }
 
     /** 灯所属 L0 床；L1 返回 null（单独弱控） */
@@ -253,15 +275,15 @@ public final class GreenhouseGeometry {
         if (deviceSn == null || deviceSn.contains("L1")) {
             return null;
         }
-        // A-01..03 S, 04..06 M, 07..09 N；B 同序
+        // v1.4：01–05 S，06–10 M，11–15 N（每床 5 段灯带）
         String n = deviceSn.replaceAll(".*?(\\d+)$", "$1");
         try {
             int i = Integer.parseInt(n);
             String prefix = deviceSn.contains("ZONE-B") ? "BED-B-" : "BED-A-";
-            if (i <= 3) {
+            if (i <= 5) {
                 return prefix + "S";
             }
-            if (i <= 6) {
+            if (i <= 10) {
                 return prefix + "M";
             }
             return prefix + "N";

@@ -1,10 +1,6 @@
-# --- root ---
-.DS_Store
-Thumbs.db
-*.log
-.idea/
-.vscode/
-*.iml
+node_modules/
+**/node_modules/
+
 
 # BearPi/OpenHarmony 源码（体积巨大，本地在 D:\ohos\bearpi-hm_nano）
 firmware/bearpi-hm_nano/

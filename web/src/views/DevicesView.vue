@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { greenhouseApi, type GhDevice, type GhZone } from '../api/greenhouse'
 import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
-import { ROLE_LABEL, normalizeRole } from '../auth/rbac'
+import { ROLE_LABEL, normalizeRole, roleFocusZh } from '../auth/rbac'
 
 type DeviceKind = '' | 'GROW_LAMP' | 'PAR_SENSOR' | 'SHADE_ACTUATOR'
 
@@ -16,6 +16,11 @@ const TYPE_LABEL: Record<string, string> = {
 
 const auth = useAuthStore()
 const canDebug = computed(() => auth.can('dev.debug'))
+const roleKey = computed(() => normalizeRole(auth.role))
+const modeHint = computed(() => {
+  if (canDebug.value) return '调试模式：可强制调光/遮阳（写入控制日志）。'
+  return `只读台账：${roleFocusZh(roleKey.value)} — 可见在线与状态，不可下发调试指令。`
+})
 const realtime = useRealtimeStore()
 const zones = ref<GhZone[]>([])
 const records = ref<GhDevice[]>([])
@@ -184,8 +189,12 @@ watch(
     <div class="devices-toolbar slide-up-enter-active">
       <section class="ui-card toolbar-card">
         <h2 class="ui-card-title">棚内设备台账</h2>
+        <p class="mode-banner" :data-debug="canDebug">
+          <span class="role-pill">{{ ROLE_LABEL[roleKey] }}</span>
+          {{ modeHint }}
+        </p>
         <p class="hint-line">
-          身份：{{ ROLE_LABEL[normalizeRole(auth.role)] }} · 标识来自光棚布局（如
+          标识来自光棚布局（如
           <span class="mono">LAMP-ZONE-A-01</span> /
           <span class="mono">PAR-ZONE-B-03</span> /
           <span class="mono">SHADE-ZONE-A</span>），与冠层光场同一套设备。
@@ -407,6 +416,30 @@ watch(
   margin: 0 0 var(--space-3);
   font-size: var(--text-xs);
   color: var(--ink-muted);
+}
+
+.mode-banner {
+  margin: 0 0 var(--space-3);
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
+}
+
+.mode-banner[data-debug='true'] {
+  background: var(--accent-soft);
+}
+
+.mode-banner .role-pill {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: var(--text-xs);
 }
 
 .hint-line a {

@@ -130,13 +130,13 @@ public final class LightEconomics {
             } else if (effectivePpfd > targetMax && avgDim > 5) {
                 advice = "过光：先降补光，勿急着关遮阳（粗档遮阳易过头）";
             } else if (effectivePpfd > targetMax && naturalPpfd > targetMax) {
-                advice = "自然光偏强：仅当逼近光抑制硬限再用遮阳粗档";
+                advice = "自然光偏强：关遮阳粗档压到目标带，优先保产量、省电";
             } else if (yieldIndex >= 0.95 && costYuan < 2) {
                 advice = "产量进度与能耗较均衡";
             } else if (yieldIndex < 0.7) {
-                advice = "日积分偏低：光周期内适度提高三色补光，优先保产量";
+                advice = "日积分偏低：光周期内补光贴配方带，优先保产量";
             } else {
-                advice = "维持目标带；遮阳用粗档、补光用光谱配方";
+                advice = "维持目标带：欠光补、过亮遮；产量优先、电费次之";
             }
         }
 

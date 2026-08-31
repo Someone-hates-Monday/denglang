@@ -6,11 +6,21 @@ export const RISK_LABEL: Record<RiskLevel, string> = {
   LOW: '低风险',
 }
 
-/** 告警类型 → 风险等级 */
+/** 告警类型 → 风险等级（含光棚 M6） */
 export function alarmRisk(alarmType: string): RiskLevel {
   const t = (alarmType || '').toUpperCase()
-  if (t === 'OFFLINE' || t === 'COMMAND_TIMEOUT' || t === 'HEARTBEAT_TIMEOUT') return 'HIGH'
-  if (t === 'LIGHT_ABNORMAL') return 'MEDIUM'
+  if (
+    t === 'OFFLINE' ||
+    t === 'DEVICE_OFFLINE' ||
+    t === 'COMMAND_TIMEOUT' ||
+    t === 'HEARTBEAT_TIMEOUT' ||
+    t === 'OVER_PPFD'
+  ) {
+    return 'HIGH'
+  }
+  if (t === 'LIGHT_ABNORMAL' || t === 'UNDER_PPFD' || t === 'DLI_LOW' || t === 'DLI_HIGH') {
+    return 'MEDIUM'
+  }
   return 'LOW'
 }
 

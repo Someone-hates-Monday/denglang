@@ -240,6 +240,8 @@ public class MqttConfig {
             Map<String, Object> data = OBJECT_MAPPER.readValue(payload, Map.class);
 
             if ("smart-greenhouse".equals(prefix)) {
+                // topic 中的 SN 优先，避免模拟器漏带 deviceSn
+                data.putIfAbsent("deviceSn", deviceSn);
                 handleGreenhouseMessage(type, data);
                 return;
             }
@@ -314,7 +316,7 @@ public class MqttConfig {
         switch (type) {
             case "telemetry" -> greenhouseService.ingestTelemetry(data);
             case "status" -> greenhouseService.ingestStatus(data);
-            case "alarm" -> log.info("光棚设备告警: {}", data);
+            case "alarm" -> greenhouseService.ingestAlarm(data);
             default -> log.warn("未知光棚 MQTT 类型: {}", type);
         }
     }

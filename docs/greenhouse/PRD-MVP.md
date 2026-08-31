@@ -55,7 +55,7 @@ Agent/RAG **不**作为 MVP 成功条件。
 |----|------|
 | M1 | 区/测点/灯/遮阳档案 + MQTT 遥测/状态 |
 | M2 | 铁皮石斛光配方绑定；区有效 PPFD 聚合 |
-| M3 | 硬限规则：欠光补光、过光遮阳/降灯 |
+| M3 | 硬限规则：欠光补光；过光**先降补光**，硬限再用遮阳粗档 |
 | M4 | 指令下发 + 状态回写 + 控制日志 |
 | M5 | 超阈值大动作 → 待审批建议 → 农艺批准 → 工单执行 |
 | M6 | 告警：欠/过 PPFD、离线、指令超时 |
@@ -121,17 +121,17 @@ Agent/RAG **不**作为 MVP 成功条件。
 
 **验收：** Given 区绑定 `dendrobium-officinale-veg-v1` 且有效 PPFD&lt;50 When 规则周期触发 Then 下发 `SET_DIMMING` 且灯 `dimmingPercent` 上升（冷却期内不抖振）。
 
-### US-03 过光遮阳
+### US-03 过光控光（经济性优先）
 
-作为农艺师，我希望 PPFD 超硬限时优先遮阳，以便防光抑制。
+作为农艺师，我希望 PPFD 超硬限时**先降补光**，必要时再关遮阳粗档，以便省电并避免「挡日光又开灯」。
 
-**验收：** Given PPFD&gt;90 When 规则触发 Then 优先 `SET_OPEN_PERCENT` 增大开度；仍过高再降灯。
+**验收：** Given 有效 PPFD 超硬限且补光仍亮 When 规则触发 Then 优先降低 `dimmingPercent`；灯已关或仍超硬限时再降低遮阳开度（粗档）。与 [CONFORMANCE](./CONFORMANCE.md) / `LightEconomics` 口径一致。
 
 ### US-04 审批工单
 
 作为农艺师，我希望大开度变更先审批，以便种植员按单执行可追责。
 
-**验收：** Given 建议调光≥80% When 生成 PENDING 工单 Then 种植员不可直接改配方；农艺 `approve` 后指令 `source=WORK_ORDER` 下发并可在日志中查到。
+**验收：** Given 建议调光≥`approveDimAbove`（默认 80）When AUTO 生成 PENDING 工单 Then 灯不直发；农艺 `approve` 后种植员 `claim` 才以 `source=WORK_ORDER` 下发并可在日志中查到。
 
 ### US-05 配方切换
 

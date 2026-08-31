@@ -44,12 +44,11 @@ public class UsersController {
         log.info("用户登录: {}", users.getUsername());
         Users loginUser = usersService.login(users.getUsername(), users.getPassword());
 
-        // 生成 JWT token
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", loginUser.getId());
+        claims.put("role", loginUser.getRole());
         String token = jwtProperties.createAccessToken(claims);
 
-        // 构造返回数据
         LoginVO loginVO = LoginVO.builder()
                 .token(token)
                 .userId(String.valueOf(loginUser.getId()))

@@ -5,9 +5,20 @@ import * as THREE from 'three'
  *
  * 布局（仿真/API）：+X 东、+Y 北、+Z 上；原点西南角地坪
  * Three.js：position (layoutX, layoutZ, layoutY)
+ *
+ * 面北相机（从 −Z 看向 +Z）时 Three lookAt 会把画面右侧映射到世界 −X。
+ * 因此把布局东取负写入 Three X，使画面左西右东，并与晨东夕西的太阳一致。
  */
+export function layoutX(xEast: number): number {
+  return -xEast
+}
+
+export function threeXToLayout(threeX: number): number {
+  return -threeX
+}
+
 export function layoutToThree(xEast: number, yNorth: number, zUp: number): THREE.Vector3 {
-  return new THREE.Vector3(xEast, zUp, yNorth)
+  return new THREE.Vector3(layoutX(xEast), zUp, yNorth)
 }
 
 /** 太阳方位：自北顺时针（°）；正午重庆示范 ≈180°（偏南） */
@@ -29,7 +40,7 @@ export function sunDirectionEnu(azFromNorthDeg: number, elevDeg: number): {
 /** 从棚心指向太阳的单位向量（Three 坐标） */
 export function sunDirectionThree(azFromNorthDeg: number, elevDeg: number): THREE.Vector3 {
   const d = sunDirectionEnu(azFromNorthDeg, elevDeg)
-  return new THREE.Vector3(d.east, d.up, d.north).normalize()
+  return new THREE.Vector3(layoutX(d.east), d.up, d.north).normalize()
 }
 
 /** 光线传播方向：太阳 → 冠层（Three） */
@@ -49,10 +60,27 @@ export function azimuthLabelZh(azFromNorthDeg: number): string {
   return '偏西北'
 }
 
-/** 默认相机：南侧外俯视，面北（西在左、东在右） */
+/** 默认相机：南侧外正对棚口，面北（画面左西右东；与 layoutX 取负配套） */
 export function defaultCameraPose(lengthM: number, widthM: number, ridgeM: number) {
   return {
-    position: layoutToThree(lengthM * 1.05, -widthM * 1.15, ridgeM * 1.85),
+    position: layoutToThree(lengthM / 2, -widthM * 1.35, ridgeM * 1.75),
     target: layoutToThree(lengthM / 2, widthM / 2, 1.15),
   }
+}
+
+/** 分区聚焦：西半跨 ZONE-A / 东半跨 ZONE-B */
+export function zoneCameraPose(zoneId: string, lengthM: number, widthM: number, ridgeM: number) {
+  if (zoneId === 'ZONE-B') {
+    return {
+      position: layoutToThree(12.0, -widthM * 1.15, ridgeM * 1.55),
+      target: layoutToThree(12.0, widthM * 0.48, 1.05),
+    }
+  }
+  if (zoneId === 'ZONE-A') {
+    return {
+      position: layoutToThree(4.0, -widthM * 1.15, ridgeM * 1.55),
+      target: layoutToThree(4.0, widthM * 0.48, 1.05),
+    }
+  }
+  return defaultCameraPose(lengthM, widthM, ridgeM)
 }

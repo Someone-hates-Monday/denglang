@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DaySeriesPoint } from '../api/greenhouse'
 import type { CurveLayerDef } from '../scene/dayCurveLayers'
 
@@ -15,8 +15,12 @@ const props = defineProps<{
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const wrapRef = ref<HTMLDivElement | null>(null)
 
 const GAP_BREAK_MIN = 45
+const CSS_H = 260
+
+let ro: ResizeObserver | null = null
 
 function densifySeries(raw: DaySeriesPoint[]): DaySeriesPoint[] {
   if (raw.length < 2) return raw
@@ -39,11 +43,28 @@ function densifySeries(raw: DaySeriesPoint[]): DaySeriesPoint[] {
     if (span <= 0 || span > GAP_BREAK_MIN) continue
     const n = Math.min(8, Math.floor(span / step))
     for (let k = 1; k < n; k++) {
-      const t = k / n
-      out.push(lerpPoint(a, b, t))
+      out.push(lerpPoint(a, b, k / n))
     }
   }
   out.push(sorted[sorted.length - 1])
+  return out
+}
+
+function lerpMap(
+  a?: Record<string, number>,
+  b?: Record<string, number>,
+  t?: number,
+): Record<string, number> | undefined {
+  if (!a && !b) return undefined
+  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})])
+  const out: Record<string, number> = {}
+  const tt = t ?? 0
+  for (const k of keys) {
+    const va = a?.[k]
+    const vb = b?.[k]
+    if (va != null && vb != null) out[k] = va + (vb - va) * tt
+    else out[k] = va ?? vb ?? 0
+  }
   return out
 }
 
@@ -73,8 +94,8 @@ function lerpPoint(a: DaySeriesPoint, b: DaySeriesPoint, t: number): DaySeriesPo
     gapPpfd: a.gapPpfd != null && b.gapPpfd != null ? L(a.gapPpfd, b.gapPpfd) : a.gapPpfd ?? b.gapPpfd,
     vpdKpa: a.vpdKpa != null && b.vpdKpa != null ? L(a.vpdKpa, b.vpdKpa) : a.vpdKpa ?? b.vpdKpa,
     dliSoFar: a.dliSoFar != null && b.dliSoFar != null ? L(a.dliSoFar, b.dliSoFar) : a.dliSoFar ?? b.dliSoFar,
-    bedPpfd: a.bedPpfd,
-    sensorPpfd: a.sensorPpfd,
+    bedPpfd: lerpMap(a.bedPpfd, b.bedPpfd, t),
+    sensorPpfd: lerpMap(a.sensorPpfd, b.sensorPpfd, t),
   }
 }
 
@@ -82,14 +103,32 @@ function anchorData(): DaySeriesPoint[] {
   return densifySeries(props.anchorSeries ?? props.series ?? [])
 }
 
+function logicalSize(): { w: number; h: number; dpr: number } {
+  const wrap = wrapRef.value
+  const w = Math.max(320, wrap?.clientWidth || 960)
+  const h = Math.max(200, wrap?.clientHeight || CSS_H)
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5)
+  return { w, h, dpr }
+}
+
 function draw() {
   const canvas = canvasRef.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  const W = canvas.width
-  const H = canvas.height
-  const pad = { l: 48, r: 44, t: 58, b: 34 }
+
+  const { w: W, h: H, dpr } = logicalSize()
+  const bw = Math.round(W * dpr)
+  const bh = Math.round(H * dpr)
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
+  }
+  canvas.style.width = `${W}px`
+  canvas.style.height = `${H}px`
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+  const pad = { l: 52, r: 48, t: 56, b: 36 }
   const plotW = W - pad.l - pad.r
   const plotH = H - pad.t - pad.b
   ctx.clearRect(0, 0, W, H)
@@ -99,10 +138,11 @@ function draw() {
   const anchor = anchorData()
 
   ctx.fillStyle = '#1d1d1f'
-  ctx.font = '600 13px system-ui, sans-serif'
-  ctx.fillText(props.title || '日变化', pad.l, 16)
+  ctx.font = '600 14px "Segoe UI", system-ui, sans-serif'
+  ctx.fillText(props.title || '日变化', pad.l, 18)
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+  ctx.strokeStyle = 'rgba(0,0,0,0.14)'
+  ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(pad.l, pad.t)
   ctx.lineTo(pad.l, pad.t + plotH)
@@ -111,20 +151,21 @@ function draw() {
 
   const xAt = (m: number) => pad.l + (m / 1440) * plotW
   ctx.fillStyle = '#6e6e73'
-  ctx.font = '11px ui-monospace, monospace'
+  ctx.font = '12px ui-monospace, "Cascadia Mono", monospace'
   for (let h = 0; h <= 24; h += 4) {
     const x = xAt(h * 60)
     ctx.beginPath()
     ctx.moveTo(x, pad.t + plotH)
     ctx.lineTo(x, pad.t + plotH + 4)
     ctx.stroke()
-    ctx.fillText(`${h}:00`, x - 12, pad.t + plotH + 18)
+    ctx.fillText(`${h}:00`, x - 14, pad.t + plotH + 20)
   }
 
   const layers = props.layers ?? []
   const hasData = anchor.length > 0 || layers.some((l) => l.series.length > 0)
   if (!hasData) {
     ctx.fillStyle = '#86868b'
+    ctx.font = '13px system-ui, sans-serif'
     ctx.fillText('等待仿真采样…（一天压缩为 2 分钟 · 连续推进）', pad.l + 8, pad.t + plotH / 2)
     return
   }
@@ -141,8 +182,8 @@ function draw() {
     const minT = 10
     const yH = (v: number) => pad.t + plotH - ((v - minH) / (maxH - minH)) * plotH
     const yT = (v: number) => pad.t + plotH - ((v - minT) / (maxT - minT)) * plotH
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yH(s.humidityPct), '#0071e3', 2)
-    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yT(s.temperatureC), '#ff9500', 2)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yH(s.humidityPct), '#0071e3', 2.25)
+    strokeLine(ctx, series, (s) => xAt(s.minuteOfDay), (s) => yT(s.temperatureC), '#ff9500', 2.25)
     legendItems = [
       { c: '#0071e3', t: '湿度 %' },
       { c: '#ff9500', t: '温度 °C' },
@@ -159,7 +200,7 @@ function draw() {
     const allGaps = layers.flatMap((l) => densifySeries(l.series).map((p) => l.getValue(p)))
     const ext = Math.max(30, ...allGaps.map(Math.abs), 1) * 1.15
     const y = (v: number) => pad.t + plotH / 2 - (v / ext) * (plotH / 2)
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)'
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)'
     ctx.setLineDash([2, 4])
     ctx.beginPath()
     ctx.moveTo(pad.l, y(0))
@@ -170,9 +211,9 @@ function draw() {
       strokeLayer(ctx, densifySeries(layer.series), layer, xAt, y)
     }
     ctx.fillStyle = '#6e6e73'
-    ctx.font = '10px system-ui'
-    ctx.fillText('↑ 高于目标', pad.l + plotW + 4, pad.t + 10)
-    ctx.fillText('↓ 低于目标', pad.l + plotW + 4, pad.t + plotH - 6)
+    ctx.font = '11px system-ui, sans-serif'
+    ctx.fillText('↑ 高于目标', pad.l + plotW + 2, pad.t + 12)
+    ctx.fillText('↓ 低于目标', pad.l + plotW + 2, pad.t + plotH - 4)
     legendItems = layers.map((l) => ({ c: l.color, t: l.label }))
   } else {
     const drawLayers =
@@ -196,7 +237,10 @@ function draw() {
     const maxV = Math.max(50, ...vals.filter((v) => v > 0)) * 1.08
     const y = (v: number) => pad.t + plotH - (v / maxV) * plotH
 
-    const targetPts = anchor.filter((s) => (s.targetPpfdMax ?? 0) > 1 && (s.targetPpfdMin ?? 0) >= 0)
+    const targetSrc = densifySeries(anchor)
+    const targetPts = targetSrc.filter(
+      (s) => s.targetPpfdMax != null && s.targetPpfdMin != null,
+    )
     if (targetPts.length >= 2) {
       ctx.beginPath()
       targetPts.forEach((s, i) => {
@@ -218,7 +262,7 @@ function draw() {
         (s) => xAt(s.minuteOfDay),
         (s) => y(s.targetPpfdMax ?? 0),
         '#af52de',
-        1,
+        1.25,
       )
       strokeLine(
         ctx,
@@ -226,12 +270,12 @@ function draw() {
         (s) => xAt(s.minuteOfDay),
         (s) => y(s.targetPpfdMin ?? 0),
         '#af52de',
-        1,
+        1.25,
       )
     }
 
     if (props.showOutdoor) {
-      strokeLine(ctx, anchor, (s) => xAt(s.minuteOfDay), (s) => y(s.outdoorPpfd), '#aeaeb2', 1.25)
+      strokeLine(ctx, anchor, (s) => xAt(s.minuteOfDay), (s) => y(s.outdoorPpfd), '#aeaeb2', 1.5)
     }
 
     for (const layer of drawLayers) {
@@ -245,10 +289,11 @@ function draw() {
     ]
   }
 
-  legend(ctx, pad.l, pad.l + plotW, 30, legendItems)
+  legend(ctx, pad.l, pad.l + plotW, 32, legendItems)
 
   const px = xAt(Math.min(1440, Math.max(0, props.minuteOfDay)))
   ctx.strokeStyle = '#1d1d1f'
+  ctx.lineWidth = 1.25
   ctx.setLineDash([4, 3])
   ctx.beginPath()
   ctx.moveTo(px, pad.t)
@@ -289,7 +334,7 @@ function strokeLine(
   ctx.lineWidth = width
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  if (dashed) ctx.setLineDash([5, 4])
+  if (dashed) ctx.setLineDash([6, 4])
 
   let started = false
   for (let i = 0; i < series.length; i++) {
@@ -301,6 +346,10 @@ function strokeLine(
     }
     const xi = x(s)
     const yi = y(s)
+    if (!Number.isFinite(yi)) {
+      started = false
+      continue
+    }
     if (!started) {
       ctx.beginPath()
       ctx.moveTo(xi, yi)
@@ -321,26 +370,43 @@ function legend(
   items: { c: string; t: string }[],
 ) {
   if (!items.length) return
-  const rowH = 16
+  const rowH = 17
   let x = x0
   let row = 0
-  ctx.font = '10px system-ui, sans-serif'
+  ctx.font = '12px "Segoe UI", system-ui, sans-serif'
   for (const it of items) {
-    const w = 24 + ctx.measureText(it.t).width
+    const w = 26 + ctx.measureText(it.t).width
     if (x + w > maxX - 8 && x > x0) {
       row++
       x = x0
     }
     const yy = y + row * rowH
     ctx.fillStyle = it.c
-    ctx.fillRect(x, yy - 9, 10, 10)
+    ctx.fillRect(x, yy - 9, 11, 11)
     ctx.fillStyle = '#6e6e73'
-    ctx.fillText(it.t, x + 14, yy)
+    ctx.fillText(it.t, x + 15, yy)
     x += w
   }
 }
 
-onMounted(draw)
+function onResize() {
+  draw()
+}
+
+onMounted(() => {
+  draw()
+  if (wrapRef.value && typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver(() => draw())
+    ro.observe(wrapRef.value)
+  }
+  window.addEventListener('resize', onResize)
+})
+
+onUnmounted(() => {
+  ro?.disconnect()
+  window.removeEventListener('resize', onResize)
+})
+
 watch(
   () => [props.anchorSeries, props.series, props.layers, props.minuteOfDay, props.mode, props.title, props.showOutdoor],
   draw,
@@ -349,13 +415,20 @@ watch(
 </script>
 
 <template>
-  <canvas ref="canvasRef" class="chart" width="960" height="268" />
+  <div ref="wrapRef" class="chart-host">
+    <canvas ref="canvasRef" class="chart" />
+  </div>
 </template>
 
 <style scoped>
+.chart-host {
+  width: 100%;
+  min-height: 260px;
+}
+
 .chart {
   width: 100%;
-  height: auto;
+  height: 260px;
   display: block;
   border-radius: 8px;
 }

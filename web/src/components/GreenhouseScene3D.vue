@@ -12,20 +12,32 @@ import {
 } from '../scene/cropCatalog'
 import {
   loadGreenhouseAssets,
-  makeGlbLamp,
   placeGlbStructure,
   type GhAssetPack,
   type ZoneCropInput,
 } from '../scene/greenhouseAssets'
+import { placeLedStrip } from '../scene/ledFixture'
+import {
+  STATUS_GLOW_HEX,
+  statusNeedsGlow,
+  type DeviceSceneStatus,
+  type SceneStatusTone,
+} from '../scene/deviceStatus'
+import { makeAccentLabelSprite, makeLabelSprite } from '../scene/labelSprite'
 import {
   azimuthLabelZh,
   defaultCameraPose,
   layoutToThree,
+  layoutX as lx,
   sunDirectionThree,
+  threeXToLayout,
+  zoneCameraPose,
 } from '../scene/layoutCoords'
 import {
   HEAT_CHANNEL_LABEL,
+  SUN_SHARE,
   channelMonoColor,
+  emphasizeLedChannel,
   ledShareForRecipe,
   rgbCompositeColor,
   splitRgb,
@@ -44,12 +56,20 @@ const props = defineProps<{
   showHeat?: boolean
   /** xray | viridis | rgb | R | G | B */
   heatChannel?: HeatChannel
+  /** 设备 SN → 告警/工单/离线等状态（驱动光晕） */
+  deviceStatuses?: Record<string, DeviceSceneStatus>
+  selectedDeviceSn?: string | null
+}>()
+
+const emit = defineEmits<{
+  selectDevice: [payload: { deviceSn: string; zoneId?: string; deviceType?: string }]
+  clearDevice: []
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
 const assetSource = ref<'glb' | 'procedural' | 'loading'>('loading')
 /** X 光切片高度（m），滚轮调节 */
-const sliceZ = ref(0.85)
+const sliceZ = ref(0.92)
 const SLICE_Z_MIN = 0.45
 const SLICE_Z_MAX = 1.55
 let assets: GhAssetPack | null = null
@@ -62,6 +82,8 @@ let heatSunMesh: THREE.Mesh | null = null
 let heatLedMesh: THREE.Mesh | null = null
 let heatBaseMesh: THREE.Mesh | null = null
 let sliceGhost: THREE.Line | null = null
+let sliceDragging = false
+let sliceDragPointerId: number | null = null
 let shadeClothA: THREE.Mesh | null = null
 let shadeClothB: THREE.Mesh | null = null
 let sunLight: THREE.DirectionalLight | null = null
@@ -72,10 +94,26 @@ let skyDome: THREE.Mesh | null = null
 let sunGroup: THREE.Group | null = null
 let lampGroup: THREE.Group | null = null
 let sensorGroup: THREE.Group | null = null
+let markerGroup: THREE.Group | null = null
 let structureKey = ''
+/** 首次建棚后不再强制拉回默认视角，避免轮询打断拖拽 */
+let structureCameraReady = false
+let focusedZoneKey = ''
+let deviceLayoutKey = ''
+let deviceVisualKey = ''
+let heatLayoutKey = ''
+let sunKey = ''
 let raf = 0
+let hoverRaf = 0
 let disposed = false
 let lastLight: GhEffectiveLight | null = null
+let deviceHitRoots: THREE.Object3D[] = []
+let statusGlowMats: THREE.MeshBasicMaterial[] = []
+let ptrDownX = 0
+let ptrDownY = 0
+let ptrDownT = 0
+/** 拖拽中跳过悬停拾取，保持跟手 */
+let orbitDragging = false
 let heatGrid: {
   nx: number
   ny: number
@@ -100,7 +138,7 @@ const hoverG = ref<number | null>(null)
 const hoverB = ref<number | null>(null)
 const hoverXY = ref('')
 
-const heatChannel = computed(() => props.heatChannel || 'rgb')
+const heatChannel = computed(() => props.heatChannel || 'xray')
 const channelHud = computed(() => HEAT_CHANNEL_LABEL[heatChannel.value])
 
 type CropHover = {
@@ -129,6 +167,15 @@ type CropHover = {
 const hoverCrop = ref<CropHover | null>(null)
 const tooltipPos = ref({ x: 0, y: 0 })
 let cropHitRoots: THREE.Object3D[] = []
+
+type DeviceHover = {
+  deviceSn: string
+  deviceType?: string
+  zoneId?: string
+  labelZh: string
+  tone: SceneStatusTone
+}
+const hoverDevice = ref<DeviceHover | null>(null)
 
 const Z_L0 = 0.55
 const Z_L1 = 1.25
@@ -224,9 +271,11 @@ const shadeWarn = computed(() => {
   return ''
 })
 
-const sliceHud = computed(
-  () => `${channelHud.value} · z=${sliceZ.value.toFixed(2)} m · 滚轮调高`,
-)
+const sliceHud = computed(() => {
+  const focus =
+    props.focusZoneId === 'ZONE-A' ? '西半跨' : props.focusZoneId === 'ZONE-B' ? '东半跨' : '整跨'
+  return `${channelHud.value} · ${focus} · z=${sliceZ.value.toFixed(2)} m`
+})
 
 /** 已迁到 spectrumModel；保留别名避免旧引用 */
 
@@ -356,24 +405,24 @@ function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
     [L + apron / 2, W / 2, apron, W + apron * 2],
   ] as const) {
     const g = new THREE.Mesh(new THREE.BoxGeometry(gw, gravelH, gd), gravelMat)
-    g.position.set(cx, gravelY, cz)
+    g.position.set(lx(cx), gravelY, cz)
     tuneMesh(g, RENDER.GROUND)
     group.add(g)
   }
 
   const path = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.012, 6.5), dirtMat)
-  path.position.set(L / 2, 0.008, -2.8)
+  path.position.set(lx(L / 2), 0.008, -2.8)
   tuneMesh(path, RENDER.FLOOR, { polygonOffset: 1 })
   group.add(path)
 
   for (const [t, px, pz, sx] of [
-    ['北', L / 2, W + 2.2, 2.2],
-    ['南', L / 2, -2.2, 2.2],
-    ['西', -2.2, W / 2, 2.2],
-    ['东', L + 2.2, W / 2, 2.2],
+    ['北', L / 2, W + 2.2, 1.6],
+    ['南 · 采光', L / 2, -2.2, 2.8],
+    ['西', -2.2, W / 2, 1.6],
+    ['东', L + 2.2, W / 2, 1.6],
   ] as const) {
     const s = makeLabelSprite(t, sx)
-    s.position.set(px, 0.56, pz)
+    s.position.set(lx(px), 0.62, pz)
     group.add(s)
   }
 
@@ -399,7 +448,7 @@ function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
       i % 3 === 0 ? grassA : i % 3 === 1 ? grassB : grassC,
     )
     patch.rotation.x = -Math.PI / 2
-    patch.position.set(x, 0.014 + rnd(i * 2) * 0.006, z)
+    patch.position.set(lx(x), 0.014 + rnd(i * 2) * 0.006, z)
     tuneMesh(patch, RENDER.FLOOR, { polygonOffset: 2 })
     group.add(patch)
   }
@@ -423,13 +472,13 @@ function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
     }
     const h = 0.18 + rnd(i * 6) * 0.35
     const blade = new THREE.Mesh(new THREE.ConeGeometry(0.04 + rnd(i) * 0.05, h, 5), i % 4 ? weedMat : grassB)
-    blade.position.set(x, h / 2, z)
+    blade.position.set(lx(x), h / 2, z)
     blade.rotation.z = (rnd(i + 2) - 0.5) * 0.35
     blade.rotation.x = (rnd(i + 3) - 0.5) * 0.25
     group.add(blade)
     if (i % 5 === 0) {
       const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), flowerMat)
-      bloom.position.set(x, h + 0.02, z)
+      bloom.position.set(lx(x), h + 0.02, z)
       group.add(bloom)
     }
   }
@@ -439,7 +488,7 @@ function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
     const z = 0.5 + rnd(i * 8) * (W + 2)
     const bush = new THREE.Mesh(new THREE.SphereGeometry(0.45 + rnd(i) * 0.35, 8, 6), shrubMat)
     bush.scale.set(1.2, 0.7 + rnd(i * 2) * 0.4, 1.0)
-    bush.position.set(x, 0.35, z)
+    bush.position.set(lx(x), 0.35, z)
     group.add(bush)
   }
 
@@ -447,10 +496,10 @@ function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
     const x = -8 + i * 4.2 + rnd(i) * 1.5
     const z = W + 7 + rnd(i * 2) * 3
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 1.6 + rnd(i) * 1.2, 6), trunkMat)
-    trunk.position.set(x, 0.9, z)
+    trunk.position.set(lx(x), 0.9, z)
     group.add(trunk)
     const crown = new THREE.Mesh(new THREE.SphereGeometry(0.9 + rnd(i) * 0.5, 8, 6), canopyMat)
-    crown.position.set(x, 2.1 + rnd(i) * 0.4, z)
+    crown.position.set(lx(x), 2.1 + rnd(i) * 0.4, z)
     crown.scale.set(1.2, 0.9, 1.1)
     group.add(crown)
   }
@@ -460,7 +509,7 @@ function addSiteEnvironment(L: number, W: number, group: THREE.Group) {
     if (x > L - 1) continue
     const hedge = new THREE.Mesh(new THREE.SphereGeometry(0.35, 7, 5), shrubMat)
     hedge.scale.set(1.4, 0.55, 0.8)
-    hedge.position.set(x, 0.28, -1.35)
+    hedge.position.set(lx(x), 0.28, -1.35)
     group.add(hedge)
   }
 }
@@ -476,8 +525,8 @@ function buildScene(el: HTMLDivElement) {
   const cam0 = defaultCameraPose(16, 7, 3.8)
   camera.position.copy(cam0.position)
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, logarithmicDepthBuffer: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.setSize(w, h)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -487,12 +536,22 @@ function buildScene(el: HTMLDivElement) {
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
-  controls.dampingFactor = 0.06
-  controls.enableZoom = false
+  controls.dampingFactor = 0.08
+  controls.enableZoom = true
+  controls.zoomSpeed = 0.9
+  controls.rotateSpeed = 0.72
+  controls.panSpeed = 0.7
   controls.target.copy(cam0.target)
   controls.maxPolarAngle = Math.PI * 0.48
   controls.minDistance = 6
   controls.maxDistance = 55
+  controls.addEventListener('start', () => {
+    orbitDragging = true
+    clearHover()
+  })
+  controls.addEventListener('end', () => {
+    orbitDragging = false
+  })
 
   scene.add(new THREE.AmbientLight(0xfff6e8, 0.28))
   sunLight = new THREE.DirectionalLight(0xfff1c8, 1.15)
@@ -538,66 +597,35 @@ function buildScene(el: HTMLDivElement) {
 
   lampGroup = new THREE.Group()
   sensorGroup = new THREE.Group()
+  markerGroup = new THREE.Group()
   sunGroup = new THREE.Group()
   scene.add(lampGroup)
   scene.add(sensorGroup)
+  scene.add(markerGroup)
   scene.add(sunGroup)
 
   const loop = () => {
     if (disposed) return
     raf = requestAnimationFrame(loop)
     controls?.update()
+    if (statusGlowMats.length) {
+      const pulse = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(performance.now() * 0.004))
+      for (const m of statusGlowMats) m.opacity = pulse
+    }
     if (renderer && scene && camera) renderer.render(scene, camera)
   }
   loop()
 }
 
-function makeLabelSprite(text: string, scaleX = 2.8): THREE.Sprite {
-  const canvas = document.createElement('canvas')
-  canvas.width = 320
-  canvas.height = 56
-  const ctx = canvas.getContext('2d')!
-  ctx.clearRect(0, 0, 320, 56)
-  ctx.fillStyle = 'rgba(29,29,31,0.72)'
-  roundRect(ctx, 8, 8, 304, 40, 8)
-  ctx.fill()
-  ctx.fillStyle = '#f5f5f7'
-  ctx.font = '600 18px system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText(text, 160, 35)
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }),
-  )
-  spr.scale.set(scaleX, 0.55, 1)
-  return spr
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.arcTo(x + w, y, x + w, y + h, r)
-  ctx.arcTo(x + w, y + h, x, y + h, r)
-  ctx.arcTo(x, y + h, x, y, r)
-  ctx.arcTo(x, y, x + w, y, r)
-  ctx.closePath()
-}
-
 function archCurve(x: number, W: number, G: number, H: number) {
   return new THREE.CatmullRomCurve3([
-    new THREE.Vector3(x, 0.04, 0),
-    new THREE.Vector3(x, G * 0.55, W * 0.08),
-    new THREE.Vector3(x, G, W * 0.22),
-    new THREE.Vector3(x, H, W * 0.5),
-    new THREE.Vector3(x, G, W * 0.78),
-    new THREE.Vector3(x, G * 0.55, W * 0.92),
-    new THREE.Vector3(x, 0.04, W),
+    new THREE.Vector3(lx(x), 0.04, 0),
+    new THREE.Vector3(lx(x), G * 0.55, W * 0.08),
+    new THREE.Vector3(lx(x), G, W * 0.22),
+    new THREE.Vector3(lx(x), H, W * 0.5),
+    new THREE.Vector3(lx(x), G, W * 0.78),
+    new THREE.Vector3(lx(x), G * 0.55, W * 0.92),
+    new THREE.Vector3(lx(x), 0.04, W),
   ])
 }
 
@@ -663,26 +691,31 @@ function addL1Rack(bed: { x0: number; x1: number; y0: number; y1: number }, grou
     [-bw / 2 + 0.08, bd / 2 - 0.08],
     [bw / 2 - 0.08, bd / 2 - 0.08],
   ] as const) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, Z_L1, 8), legMat)
-    leg.position.set(cx + ox, Z_L1 / 2, cz + oz)
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, Z_L1, 8), legMat)
+    leg.position.set(lx(cx + ox), Z_L1 / 2, cz + oz)
     group.add(leg)
   }
 
-  const deck1 = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.18, 0.045, bd - 0.1), bedMat)
-  deck1.position.set(cx, Z_L1, cz)
+  const deck1 = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.18, 0.04, bd - 0.12), bedMat)
+  deck1.position.set(lx(cx), Z_L1, cz)
   group.add(deck1)
-  for (let i = 0; i < 9; i++) {
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.26), trayMat)
-    tray.position.set(bed.x0 + 0.55 + i * 0.72, Z_L1 + 0.05, cz)
+  // 炼苗穴盘：约 0.28×0.2 m，沿床密铺
+  for (let i = 0; i < 18; i++) {
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.028, 0.18), trayMat)
+    tray.position.set(lx(bed.x0 + 0.4 + i * 0.38), Z_L1 + 0.03, cz)
     group.add(tray)
-    for (let k = 0; k < 3; k++) {
-      const sprout = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), leafMat)
-      sprout.position.set(bed.x0 + 0.45 + i * 0.72 + k * 0.1, Z_L1 + 0.11, cz + (k - 1) * 0.05)
+    for (let k = 0; k < 4; k++) {
+      const sprout = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), leafMat)
+      sprout.position.set(
+        lx(bed.x0 + 0.32 + i * 0.38 + (k % 2) * 0.08),
+        Z_L1 + 0.06,
+        cz + (Math.floor(k / 2) - 0.5) * 0.06,
+      )
       group.add(sprout)
     }
   }
-  const l1Tag = makeLabelSprite('L1 组培/炼苗', 2.4)
-  l1Tag.position.set(cx, Z_L1 + 0.55, cz)
+  const l1Tag = makeLabelSprite('L1 组培/炼苗', 2.0)
+  l1Tag.position.set(lx(cx), Z_L1 + 0.42, cz)
   group.add(l1Tag)
 }
 
@@ -698,12 +731,12 @@ function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number; 
   const cz = (bed.y0 + bed.y1) / 2
   const withL1 = bed.bedId ? bedHasL1Tier(bed.bedId) : false
 
-  const deck0 = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.06, bd), bedMat)
-  deck0.position.set(cx, Z_L0, cz)
+  const deck0 = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.055, bd), bedMat)
+  deck0.position.set(lx(cx), Z_L0, cz)
   group.add(deck0)
 
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.04, 0.04, 0.04), legMat)
-  rail.position.set(cx, Z_L0 + 0.05, bed.y0 + 0.02)
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.04, 0.035, 0.035), legMat)
+  rail.position.set(lx(cx), Z_L0 + 0.04, bed.y0 + 0.02)
   group.add(rail)
 
   if (!withL1) {
@@ -713,22 +746,29 @@ function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number; 
       [-bw / 2 + 0.08, bd / 2 - 0.08],
       [bw / 2 - 0.08, bd / 2 - 0.08],
     ] as const) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, Z_L0, 8), legMat)
-      leg.position.set(cx + ox, Z_L0 / 2, cz + oz)
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, Z_L0, 8), legMat)
+      leg.position.set(lx(cx + ox), Z_L0 / 2, cz + oz)
       group.add(leg)
     }
   }
 
-  for (let x = bed.x0 + 0.28; x < bed.x1 - 0.15; x += 0.38) {
-    for (const row of [0.28, 0.5, 0.72]) {
+  // 铁皮石斛盆栽：盆径 ~9 cm，丛高 ~12–20 cm，株距 ~15 cm（规程量级，非示意巨株）
+  const potPitch = 0.15
+  const rows = [0.18, 0.36, 0.54, 0.72, 0.88]
+  for (let x = bed.x0 + 0.2; x < bed.x1 - 0.12; x += potPitch) {
+    for (const row of rows) {
       const z = bed.y0 + bd * row
-      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.1, 10), potMat)
-      pot.position.set(x, Z_L0 + 0.08, z)
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.045, 0.07, 8), potMat)
+      pot.position.set(lx(x), Z_L0 + 0.055, z)
       group.add(pot)
-      const h = 0.18 + ((x * 10 + z) % 7) * 0.012
-      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.08, h, 7), (x + z) % 1.1 > 0.5 ? leafMat : leafDark)
-      leaf.position.set(x, Z_L0 + 0.12 + h / 2, z)
-      leaf.rotation.y = (x * 3) % 1
+      const h = 0.1 + ((x * 17 + z * 13) % 5) * 0.014
+      const leaf = new THREE.Mesh(
+        new THREE.ConeGeometry(0.035, h, 6),
+        (x + z) % 1.1 > 0.5 ? leafMat : leafDark,
+      )
+      leaf.position.set(lx(x), Z_L0 + 0.09 + h / 2, z)
+      leaf.rotation.y = (x * 5) % 2
+      leaf.rotation.z = ((x * 3) % 1) * 0.15 - 0.07
       group.add(leaf)
     }
   }
@@ -757,38 +797,15 @@ function attachCropHit(
     new THREE.BoxGeometry(bed.x1 - bed.x0, 1.4, bed.y1 - bed.y0),
     new THREE.MeshBasicMaterial({ visible: false }),
   )
-  hit.position.set((bed.x0 + bed.x1) / 2, 0.9, (bed.y0 + bed.y1) / 2)
+  hit.position.set(lx((bed.x0 + bed.x1) / 2), 0.9, (bed.y0 + bed.y1) / 2)
   hit.name = `hit-${bed.bedId}`
   hit.userData.cropBed = meta
   group.add(hit)
   cropHitRoots.push(hit)
 
-  const canvas = document.createElement('canvas')
-  canvas.width = 420
-  canvas.height = 72
-  const ctx = canvas.getContext('2d')!
-  ctx.clearRect(0, 0, 420, 72)
-  ctx.fillStyle = 'rgba(29,29,31,0.82)'
-  ctx.beginPath()
-  ctx.moveTo(18, 10)
-  ctx.arcTo(412, 10, 412, 62, 10)
-  ctx.arcTo(412, 62, 8, 62, 10)
-  ctx.arcTo(8, 62, 8, 10, 10)
-  ctx.arcTo(8, 10, 412, 10, 10)
-  ctx.closePath()
-  ctx.fill()
   const accent = info.key === 'dendrobium' ? '#34c759' : info.key === 'strawberry' ? '#ff3b30' : '#0071e3'
-  ctx.fillStyle = accent
-  ctx.fillRect(8, 10, 6, 52)
-  ctx.fillStyle = '#f5f5f7'
-  ctx.font = '600 22px system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText(`${info.nameZh} · ${bed.roleZh}`, 210, 44)
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }),
-  )
-  spr.scale.set(3.2, 0.55, 1)
-  spr.position.set((bed.x0 + bed.x1) / 2, 2.05, (bed.y0 + bed.y1) / 2)
+  const spr = makeAccentLabelSprite(`${info.nameZh} · ${bed.roleZh}`, accent, 3.0)
+  spr.position.set(lx((bed.x0 + bed.x1) / 2), 2.05, (bed.y0 + bed.y1) / 2)
   spr.userData.cropBed = meta
   group.add(spr)
 }
@@ -802,7 +819,7 @@ function rebuildStructure(light: GhEffectiveLight) {
   const crops = zoneCropInputs()
   const cropSig = crops.map((c) => `${c.zoneId}:${cropLabel(c.recipe, c.zoneId, c.recipeId).key}`).join('|')
   const mode = assets?.ready ? 'glb' : 'proc'
-  const key = `${L}x${W}x${H}-v1.9-${mode}-${cropSig}`
+  const key = `${L}x${W}x${H}-v2.2-ewfix-${mode}-${cropSig}`
   if (key === structureKey) return
   structureKey = key
   cropHitRoots = []
@@ -850,27 +867,28 @@ function rebuildStructure(light: GhEffectiveLight) {
         emissiveIntensity: 0.2,
       }),
     )
-    m.position.set(x, 0.048, 0.4)
+    m.position.set(lx(x), 0.048, 0.4)
     tuneMesh(m, RENDER.FLOOR, { polygonOffset: 1 })
     group.add(m)
   }
   strip(4)
   strip(12)
-  const south = makeLabelSprite(`南 · 采光 · 整跨 ${infoA.nameZh}${stage && stage !== '—' ? ` · ${stage}` : ''}`, 5.2)
-  south.position.set(L / 2, 0.5, -0.7)
-  group.add(south)
-
-  const westA = makeLabelSprite('西半跨', 2.2)
-  westA.position.set(-1.3, 1.85, W / 2)
-  group.add(westA)
-  const eastB = makeLabelSprite('东半跨', 2.2)
-  eastB.position.set(L + 1.3, 1.85, W / 2)
-  group.add(eastB)
+  const cropTag = makeLabelSprite(
+    `整跨 ${infoA.nameZh}${stage && stage !== '—' ? ` · ${stage}` : ''}`,
+    4.2,
+  )
+  cropTag.position.set(lx(L / 2), 0.48, -0.55)
+  group.add(cropTag)
 
   scene.add(group)
-  const cam = defaultCameraPose(L, W, H)
-  controls!.target.copy(cam.target)
-  camera?.position.copy(cam.position)
+  if (!structureCameraReady && camera && controls) {
+    structureCameraReady = true
+    const focus = props.focusZoneId
+    const cam = focus ? zoneCameraPose(focus, L, W, H) : defaultCameraPose(L, W, H)
+    controls.target.copy(cam.target)
+    camera.position.copy(cam.position)
+    focusedZoneKey = focus || ''
+  }
 }
 
 function buildProceduralStructure(
@@ -891,11 +909,11 @@ function buildProceduralStructure(
 
   const ridge = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, L, 8), frameMat)
   ridge.rotation.z = Math.PI / 2
-  ridge.position.set(L / 2, H, W / 2)
+  ridge.position.set(lx(L / 2), H, W / 2)
   group.add(ridge)
   for (const z of [0.08, W - 0.08]) {
     const gutter = new THREE.Mesh(new THREE.BoxGeometry(L, 0.08, 0.12), frameMat)
-    gutter.position.set(L / 2, G * 0.15, z)
+    gutter.position.set(lx(L / 2), G * 0.15, z)
     group.add(gutter)
   }
 
@@ -911,7 +929,7 @@ function buildProceduralStructure(
   })
   for (const x of [0.12, L - 0.12]) {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.96, G * 0.92), endMat)
-    wall.position.set(x, G * 0.46, W / 2)
+    wall.position.set(lx(x), G * 0.46, W / 2)
     wall.rotation.y = Math.PI / 2
     tuneMesh(wall, RENDER.STRUCTURE, { depthWrite: false })
     group.add(wall)
@@ -920,7 +938,7 @@ function buildProceduralStructure(
     new THREE.BoxGeometry(0.08, 1.9, 0.95),
     new THREE.MeshStandardMaterial({ color: 0x5a6570, metalness: 0.3, roughness: 0.5 }),
   )
-  door.position.set(0.08, 0.95, W / 2)
+  door.position.set(lx(0.08), 0.95, W / 2)
   group.add(door)
 
   for (const bed of BEDS) {
@@ -933,7 +951,7 @@ function buildProceduralStructure(
   const postMat = new THREE.MeshStandardMaterial({ color: 0x6a737c, metalness: 0.4, roughness: 0.45 })
   for (const z of [1.4, 3.5, 5.6]) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 8), postMat)
-    post.position.set(8, 1.2, z)
+    post.position.set(lx(8), 1.2, z)
     group.add(post)
   }
 
@@ -941,28 +959,34 @@ function buildProceduralStructure(
     new THREE.BoxGeometry(0.95, 0.04, W * 0.88),
     new THREE.MeshStandardMaterial({ color: 0x9aa394, roughness: 0.9 }),
   )
-  aisle.position.set(8, 0.028, W / 2)
+  aisle.position.set(lx(8), 0.028, W / 2)
   tuneMesh(aisle, RENDER.FLOOR, { polygonOffset: 1 })
   group.add(aisle)
 }
 
 function updateSun(light: GhEffectiveLight) {
   if (!scene || !sunGroup || !sunLight) return
+  const elev = Number(light.solarElevationDeg ?? 0)
+  const az = Number(light.solarAzimuthDeg ?? 180)
+  const key = `${elev.toFixed(1)}:${az.toFixed(1)}:${Number(light.outdoorParPpfd ?? 0).toFixed(0)}`
+  if (key === sunKey && sunDisc) {
+    // 仅刷新强度类轻量字段时可跳过重建箭头
+    return
+  }
+  sunKey = key
   while (sunGroup.children.length) sunGroup.remove(sunGroup.children[0])
   if (sunArrow) {
     scene.remove(sunArrow)
     sunArrow = null
   }
 
-  const elev = Number(light.solarElevationDeg ?? 0)
-  const az = Number(light.solarAzimuthDeg ?? 180)
   const L = Number(light.lengthM) || 16
   const W = Number(light.widthM) || 7
 
   const sm = light.sunModel as { dirEast?: number; dirNorth?: number; dirUp?: number } | undefined
   const towardSun =
     sm?.dirEast != null && sm?.dirNorth != null && sm?.dirUp != null
-      ? new THREE.Vector3(sm.dirEast, sm.dirUp, sm.dirNorth).normalize()
+      ? new THREE.Vector3(lx(sm.dirEast), sm.dirUp, sm.dirNorth).normalize()
       : sunDirectionThree(az, elev)
   const rayDir = towardSun.clone().negate()
   const center = layoutToThree(L / 2, W / 2, 1.2)
@@ -1034,7 +1058,7 @@ function updateShadeRoll(mesh: THREE.Mesh | null, xCenter: number, span: number,
   }
   const depth = Math.max(0.12, W * 0.88 * Math.max(0.05, closed))
   mesh.scale.set(1, 1, Math.max(0.05, closed))
-  mesh.position.set(xCenter, 3.42, W - 0.15 - depth / 2)
+  mesh.position.set(lx(xCenter), 3.42, W - 0.15 - depth / 2)
   ;(mesh.material as THREE.MeshStandardMaterial).opacity = 0.2 + closed * 0.55
   mesh.renderOrder = RENDER.SHADE
   return mesh
@@ -1113,43 +1137,42 @@ function brightnessAtSlice(
   const nearCanopy = Math.abs(z - canopyZ) < 0.08
   const hasBackendRgb = cells.r.some((v) => v > 0)
   const lamps = (light.devices || []).filter((d) => d.deviceType === 'GROW_LAMP' && d.posX != null)
+  const useGridOnly = nearCanopy && cells.ppfd.some((v) => v > 0)
   for (let iy = 0; iy < ny; iy++) {
     for (let ix = 0; ix < nx; ix++) {
       const i = iy * nx + ix
       const x = (ix / Math.max(1, nx - 1)) * L
       const y = (iy / Math.max(1, ny - 1)) * W
-      let ledSum = 0
-      for (const lamp of lamps) {
-        if (lamp.powerOn === false) continue
-        const dim = (lamp.dimmingPercent ?? 0) / 100
-        if (dim <= 0) continue
-        const lx = lamp.posX!
-        const ly = lamp.posY ?? y
-        const lz = lamp.posZ ?? 1.85
-        const dx = x - lx
-        const dy = y - ly
-        const dz = Math.max(0.15, lz - z)
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-        const cos = dz / dist
-        const halfAng = Math.cos((55 * Math.PI) / 180)
-        if (cos < halfAng * 0.85) {
-          const soft = Math.max(0, (cos - 0.05) / Math.max(0.2, halfAng))
-          if (soft < 0.05) continue
+      let ledSum = cells.led[i] ?? 0
+      if (!useGridOnly) {
+        ledSum = 0
+        for (const lamp of lamps) {
+          if (lamp.powerOn === false) continue
+          const dim = (lamp.dimmingPercent ?? 0) / 100
+          if (dim <= 0) continue
+          const lx = lamp.posX!
+          const ly = lamp.posY ?? y
+          const lz = lamp.posZ ?? 1.85
+          const dx = x - lx
+          const dy = y - ly
+          const dz = Math.max(0.15, lz - z)
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+          const cos = dz / dist
+          const halfAng = Math.cos((55 * Math.PI) / 180)
+          if (cos < halfAng * 0.85) {
+            const soft = Math.max(0, (cos - 0.05) / Math.max(0.2, halfAng))
+            if (soft < 0.05) continue
+          }
+          const maxCanopy = 150
+          const designH = (lamp.deviceSn || '').includes('L1') ? 0.35 : 0.85
+          const peak = maxCanopy * designH * designH
+          ledSum += (peak * cos) / (dist * dist) * dim
         }
-        const maxCanopy = (lamp.deviceSn || '').includes('L1')
-          ? 55
-          : (lamp.deviceSn || '').includes('ZONE-B')
-            ? 80
-            : 95
-        const designH = (lamp.deviceSn || '').includes('L1') ? 0.8 : 0.95
-        const peak = maxCanopy * designH * designH
-        ledSum += (peak * cos) / (dist * dist) * dim
       }
       const sun = cells.sun[i] ?? 0
       led[i] = ledSum
-      bright[i] = sun + ledSum
+      bright[i] = useGridOnly ? (cells.ppfd[i] ?? sun + ledSum) : sun + ledSum
       if (nearCanopy && hasBackendRgb && cells.r[i] > 0) {
-        // 冠层高度优先用后端三色分解（与物理遮阳/配方光谱一致）
         const scale = cells.ppfd[i] > 1e-3 ? bright[i] / cells.ppfd[i] : 1
         rCh[i] = cells.r[i] * scale
         gCh[i] = cells.g[i] * scale
@@ -1185,7 +1208,7 @@ function buildFlatHeatGeometry(
       const i = iy * nx + ix
       const x = (ix / Math.max(1, nx - 1)) * L
       const zz = (iy / Math.max(1, ny - 1)) * W
-      positions.push(x, z, zz)
+      positions.push(lx(x), z, zz)
       const [r, g, b] = colorAt(i)
       colors.push(r / 255, g / 255, b / 255)
     }
@@ -1229,7 +1252,8 @@ function makeHeatLayer(
       opacity,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: true,
+      depthTest: false,
+      toneMapped: false,
       polygonOffset: true,
       polygonOffsetFactor: -4,
       polygonOffsetUnits: -4,
@@ -1238,6 +1262,50 @@ function makeHeatLayer(
   mesh.renderOrder = renderOrder
   if (liftY) mesh.position.y = liftY
   return mesh
+}
+
+function colorAtHeatIndex(
+  i: number,
+  ch: HeatChannel,
+  field: {
+    bright: Float32Array
+    sun: Float32Array
+    led: Float32Array
+    r: Float32Array
+    g: Float32Array
+    b: Float32Array
+  },
+  chRef: number,
+  nx: number,
+  L: number,
+  viewR?: Float32Array,
+  viewG?: Float32Array,
+  viewB?: Float32Array,
+): [number, number, number] {
+  let rgb: [number, number, number]
+  if (ch === 'rgb') {
+    rgb = rgbCompositeColor(field.r[i], field.g[i], field.b[i], chRef, field.sun[i])
+  } else if (ch === 'R' && viewR) rgb = channelMonoColor(viewR[i], chRef, 'R')
+  else if (ch === 'G' && viewG) rgb = channelMonoColor(viewG[i], chRef, 'G')
+  else if (ch === 'B' && viewB) rgb = channelMonoColor(viewB[i], chRef, 'B')
+  else if (ch === 'viridis') rgb = viridisColor(field.bright[i], chRef)
+  else rgb = xrayColor(field.bright[i], chRef)
+
+  // 分区聚焦：非当前半跨热力压暗，切换下拉才有可见反馈
+  const focus = props.focusZoneId
+  if (focus === 'ZONE-A' || focus === 'ZONE-B') {
+    const ix = i % nx
+    const xEast = (ix / Math.max(1, nx - 1)) * L
+    const inFocus = focus === 'ZONE-A' ? xEast < 8 : xEast >= 8
+    if (!inFocus) {
+      return [
+        Math.round(rgb[0] * 0.28 + 180 * 0.12),
+        Math.round(rgb[1] * 0.28 + 185 * 0.12),
+        Math.round(rgb[2] * 0.28 + 190 * 0.12),
+      ]
+    }
+  }
+  return rgb
 }
 
 function updateHeatmap(light: GhEffectiveLight) {
@@ -1265,39 +1333,80 @@ function updateHeatmap(light: GhEffectiveLight) {
   }
 
   const outdoor = Number(light.outdoorParPpfd) || 0
-  const brightRef = Math.max(outdoor * 0.55, ...field.bright, heatMax.value, 80)
+  let brightMax = heatMax.value
+  for (let i = 0; i < field.bright.length; i++) {
+    if (field.bright[i] > brightMax) brightMax = field.bright[i]
+  }
+  const brightRef = Math.max(outdoor * 0.55, brightMax, 80)
   const ch = heatChannel.value
-  const chRef =
-    ch === 'R'
-      ? Math.max(...field.r, brightRef * 0.4, 40)
-      : ch === 'G'
-        ? Math.max(...field.g, brightRef * 0.4, 40)
-        : ch === 'B'
-          ? Math.max(...field.b, brightRef * 0.4, 40)
-          : brightRef
-
-  heatMesh = disposeMesh(heatMesh)
-  heatSunMesh = disposeMesh(heatSunMesh)
-  heatLedMesh = disposeMesh(heatLedMesh)
-  if (sliceGhost && scene) {
-    scene.remove(sliceGhost)
-    sliceGhost.geometry.dispose()
-    ;(sliceGhost.material as THREE.Material).dispose()
-    sliceGhost = null
+  const needRgbView = ch === 'R' || ch === 'G' || ch === 'B' || ch === 'rgb'
+  let viewR: Float32Array | undefined
+  let viewG: Float32Array | undefined
+  let viewB: Float32Array | undefined
+  let chRef = brightRef
+  if (needRgbView) {
+    viewR = new Float32Array(field.r.length)
+    viewG = new Float32Array(field.g.length)
+    viewB = new Float32Array(field.b.length)
+    for (let i = 0; i < field.r.length; i++) {
+      viewR[i] = emphasizeLedChannel(field.r[i], field.sun[i], SUN_SHARE.r)
+      viewG[i] = emphasizeLedChannel(field.g[i], field.sun[i], SUN_SHARE.g)
+      viewB[i] = emphasizeLedChannel(field.b[i], field.sun[i], SUN_SHARE.b)
+    }
+    if (ch === 'R') chRef = Math.max(...viewR, brightRef * 0.35, 40)
+    else if (ch === 'G') chRef = Math.max(...viewG, brightRef * 0.25, 30)
+    else if (ch === 'B') chRef = Math.max(...viewB, brightRef * 0.3, 35)
+    else chRef = Math.max(...viewR, ...viewG, ...viewB, brightRef * 0.4, 40)
   }
 
-  if (visible && (light.grid?.length ?? 0) > 0) {
-    const geo = buildFlatHeatGeometry(nx, ny, L, W, z, (i) => {
-      if (ch === 'rgb') return rgbCompositeColor(field.r[i], field.g[i], field.b[i], chRef)
-      if (ch === 'R') return channelMonoColor(field.r[i], chRef, 'R')
-      if (ch === 'G') return channelMonoColor(field.g[i], chRef, 'G')
-      if (ch === 'B') return channelMonoColor(field.b[i], chRef, 'B')
-      if (ch === 'viridis') return viridisColor(field.bright[i], chRef)
-      return xrayColor(field.bright[i], chRef)
-    })
+  const layout = `${nx}x${ny}x${L}x${W}`
+  const canPatch =
+    visible &&
+    heatMesh &&
+    heatLayoutKey === layout &&
+    heatMesh.geometry.getAttribute('color')?.count === nx * ny
+
+  if (!visible) {
+    heatMesh = disposeMesh(heatMesh)
+    heatSunMesh = disposeMesh(heatSunMesh)
+    heatLedMesh = disposeMesh(heatLedMesh)
+    if (sliceGhost && scene) {
+      scene.remove(sliceGhost)
+      sliceGhost.geometry.dispose()
+      ;(sliceGhost.material as THREE.Material).dispose()
+      sliceGhost = null
+    }
+    heatLayoutKey = ''
+  } else if (canPatch && heatMesh) {
+    const colors = heatMesh.geometry.getAttribute('color') as THREE.BufferAttribute
+    for (let i = 0; i < nx * ny; i++) {
+      const [r, g, b] = colorAtHeatIndex(i, ch, field, chRef, nx, L, viewR, viewG, viewB)
+      colors.setXYZ(i, r / 255, g / 255, b / 255)
+    }
+    colors.needsUpdate = true
+    heatMesh.position.y = 0.012
+    if (sliceGhost) sliceGhost.position.set(lx(L / 2), z + 0.018, W / 2)
+    // 切片高度变了：平移顶点 y
+    const pos = heatMesh.geometry.getAttribute('position') as THREE.BufferAttribute
+    if (Math.abs(pos.getY(0) - z) > 1e-4) {
+      for (let i = 0; i < pos.count; i++) pos.setY(i, z)
+      pos.needsUpdate = true
+    }
+  } else {
+    heatMesh = disposeMesh(heatMesh)
+    heatSunMesh = disposeMesh(heatSunMesh)
+    heatLedMesh = disposeMesh(heatLedMesh)
+    if (sliceGhost && scene) {
+      scene.remove(sliceGhost)
+      sliceGhost.geometry.dispose()
+      ;(sliceGhost.material as THREE.Material).dispose()
+      sliceGhost = null
+    }
+    const geo = buildFlatHeatGeometry(nx, ny, L, W, z, (i) =>
+      colorAtHeatIndex(i, ch, field, chRef, nx, L, viewR, viewG, viewB),
+    )
     heatMesh = makeHeatLayer(geo, 0.84, RENDER.HEAT, 0.012)
     scene.add(heatMesh)
-
     const edge = new THREE.EdgesGeometry(new THREE.PlaneGeometry(L * 0.98, W * 0.95))
     sliceGhost = new THREE.LineSegments(
       edge,
@@ -1309,9 +1418,10 @@ function updateHeatmap(light: GhEffectiveLight) {
       }),
     )
     sliceGhost.rotation.x = -Math.PI / 2
-    sliceGhost.position.set(L / 2, z + 0.018, W / 2)
+    sliceGhost.position.set(lx(L / 2), z + 0.018, W / 2)
     sliceGhost.renderOrder = RENDER.GIZMO
     scene.add(sliceGhost)
+    heatLayoutKey = layout
   }
 
   if (heatBaseMesh) {
@@ -1322,46 +1432,227 @@ function updateHeatmap(light: GhEffectiveLight) {
   const closedB = 1 - (props.shadeOpenB ?? light.shadeOpenPercent ?? 100) / 100
   shadeClothA = updateShadeRoll(shadeClothA, 4, 7.6, W, closedA)
   shadeClothB = updateShadeRoll(shadeClothB, 12, 7.6, W, closedB)
+}
 
-  if (lampGroup && sensorGroup) {
-    while (lampGroup.children.length) lampGroup.remove(lampGroup.children[0])
-    while (sensorGroup.children.length) sensorGroup.remove(sensorGroup.children[0])
-    for (const d of light.devices || []) {
-      if (d.posX == null || d.posY == null) continue
-      if (d.deviceType === 'GROW_LAMP') {
-        const dim = (d.dimmingPercent ?? 0) / 100
-        const lz = d.posZ ?? 1.85
-        if (assets?.ready) {
-          lampGroup.add(makeGlbLamp(assets, d.posX, d.posY, lz, dim))
-        } else {
-          const bar = new THREE.Mesh(
-            new THREE.BoxGeometry(0.35, 0.03, 0.08),
-            new THREE.MeshStandardMaterial({
-              color: 0x1d1d1f,
-              emissive: 0xffcc55,
-              emissiveIntensity: 0.2 + dim * 1.1,
-              metalness: 0.5,
-              roughness: 0.35,
-            }),
-          )
-          bar.position.set(d.posX, lz, d.posY)
-          lampGroup.add(bar)
-        }
-      } else if (d.deviceType === 'PAR_SENSOR') {
-        const sz = d.posZ ?? 0.85
-        const disc = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.07, 0.07, 0.025, 12),
-          new THREE.MeshStandardMaterial({
-            color: 0xf5f5f7,
-            emissive: 0x34c759,
-            emissiveIntensity: 0.45,
-          }),
-        )
-        disc.position.set(d.posX, sz, d.posY)
-        sensorGroup.add(disc)
+function deviceLayoutSignature(light: GhEffectiveLight): string {
+  return (light.devices || [])
+    .map(
+      (d) =>
+        `${d.deviceSn}:${d.deviceType}:${d.posX ?? ''}:${d.posY ?? ''}:${d.posZ ?? ''}`,
+    )
+    .join('|')
+}
+
+function deviceVisualSignature(light: GhEffectiveLight): string {
+  const dims = (light.devices || [])
+    .map((d) => `${d.deviceSn}:${Math.round((d.dimmingPercent ?? 0) / 5) * 5}:${d.powerOn === false ? 0 : 1}`)
+    .join('|')
+  const tones = Object.entries(props.deviceStatuses || {})
+    .map(([sn, st]) => `${sn}:${st.tone}`)
+    .sort()
+    .join('|')
+  return `${dims}#${tones}#${props.selectedDeviceSn || ''}`
+}
+
+function syncDevices(light: GhEffectiveLight) {
+  const W = Number(light.widthM) || 7
+  const layout = deviceLayoutSignature(light)
+  const visual = deviceVisualSignature(light)
+  if (layout !== deviceLayoutKey) {
+    deviceLayoutKey = layout
+    deviceVisualKey = visual
+    rebuildDevicePickables(light, W)
+    return
+  }
+  if (visual === deviceVisualKey) return
+
+  // 仅选中变化：就地换光晕，不清拾取体、不重建灯带
+  const body = visual.slice(0, visual.lastIndexOf('#'))
+  const prevBody = deviceVisualKey.slice(0, deviceVisualKey.lastIndexOf('#'))
+  if (body === prevBody) {
+    deviceVisualKey = visual
+    patchSelectionGlows()
+    return
+  }
+  deviceVisualKey = visual
+  rebuildDevicePickables(light, W)
+}
+
+function patchSelectionGlows() {
+  statusGlowMats = []
+  for (const g of [lampGroup, sensorGroup, markerGroup]) {
+    if (!g) continue
+    for (const root of g.children) {
+      const sn = root.userData.deviceSn as string | undefined
+      if (!sn) continue
+      for (const c of [...root.children]) {
+        if (c.name === 'status-glow') root.remove(c)
+      }
+      const st = props.deviceStatuses?.[sn]
+      const tone = st?.tone || 'ok'
+      if (statusNeedsGlow(tone) || props.selectedDeviceSn === sn) {
+        const glowTone = statusNeedsGlow(tone) ? tone : 'ok'
+        const glow = makeStatusGlow(glowTone, props.selectedDeviceSn === sn)
+        glow.position.y = -0.04
+        root.add(glow)
       }
     }
   }
+}
+
+function makeStatusGlow(tone: SceneStatusTone, selected: boolean): THREE.Group {
+  const g = new THREE.Group()
+  g.name = 'status-glow'
+  const color = STATUS_GLOW_HEX[tone]
+  const ringMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: selected ? 0.95 : 0.7,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  })
+  statusGlowMats.push(ringMat)
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.14, selected ? 0.28 : 0.22, 40), ringMat)
+  ring.rotation.x = -Math.PI / 2
+  ring.renderOrder = 20
+  g.add(ring)
+  const haloMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: selected ? 0.35 : 0.22,
+    depthWrite: false,
+  })
+  statusGlowMats.push(haloMat)
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(selected ? 0.32 : 0.24, 16, 12), haloMat)
+  halo.renderOrder = 19
+  g.add(halo)
+  return g
+}
+
+function tagDeviceRoot(
+  root: THREE.Object3D,
+  meta: { deviceSn: string; deviceType: string; zoneId?: string },
+  hitRadius: number,
+  pushHit?: (hit: THREE.Object3D) => void,
+) {
+  root.name = meta.deviceSn
+  root.userData.deviceSn = meta.deviceSn
+  root.userData.deviceType = meta.deviceType
+  root.userData.zoneId = meta.zoneId
+  const hit = new THREE.Mesh(
+    new THREE.SphereGeometry(hitRadius, 10, 10),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  )
+  hit.name = `hit-${meta.deviceSn}`
+  hit.userData = { ...meta, pickDevice: true }
+  root.add(hit)
+  if (pushHit) pushHit(hit)
+  else deviceHitRoots.push(hit)
+
+  const st = props.deviceStatuses?.[meta.deviceSn]
+  const tone = st?.tone || 'ok'
+  if (statusNeedsGlow(tone) || props.selectedDeviceSn === meta.deviceSn) {
+    const glowTone = statusNeedsGlow(tone) ? tone : 'ok'
+    const glow = makeStatusGlow(glowTone, props.selectedDeviceSn === meta.deviceSn)
+    glow.position.y = -0.04
+    root.add(glow)
+  }
+}
+
+function rebuildDevicePickables(light: GhEffectiveLight, W: number) {
+  const nextHits: THREE.Object3D[] = []
+  statusGlowMats = []
+  if (!lampGroup || !sensorGroup || !markerGroup) return
+
+  while (lampGroup.children.length) lampGroup.remove(lampGroup.children[0])
+  while (sensorGroup.children.length) sensorGroup.remove(sensorGroup.children[0])
+  while (markerGroup.children.length) markerGroup.remove(markerGroup.children[0])
+
+  const placed = new Set<string>()
+  const pushHit = (hit: THREE.Object3D) => {
+    nextHits.push(hit)
+  }
+
+  for (const d of light.devices || []) {
+    if (d.posX == null || d.posY == null) continue
+    if (d.deviceType === 'GROW_LAMP') {
+      const dim = (d.dimmingPercent ?? 0) / 100
+      const lz = d.posZ ?? 1.85
+      const isL1 = (d.deviceSn || '').includes('L1')
+      const root = placeLedStrip(assets, lx(d.posX), d.posY, lz, dim, isL1)
+      tagDeviceRoot(
+        root,
+        { deviceSn: d.deviceSn, deviceType: 'GROW_LAMP', zoneId: d.zoneId },
+        0.32,
+        pushHit,
+      )
+      lampGroup.add(root)
+      placed.add(d.deviceSn)
+    } else if (d.deviceType === 'PAR_SENSOR') {
+      const sz = d.posZ ?? 0.9
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.028, 0.028, 0.012, 10),
+        new THREE.MeshStandardMaterial({
+          color: 0xf5f5f7,
+          emissive: 0x34c759,
+          emissiveIntensity: 0.35,
+        }),
+      )
+      const root = new THREE.Group()
+      root.position.set(lx(d.posX), sz, d.posY)
+      disc.position.set(0, 0, 0)
+      root.add(disc)
+      tagDeviceRoot(
+        root,
+        { deviceSn: d.deviceSn, deviceType: 'PAR_SENSOR', zoneId: d.zoneId },
+        0.22,
+        pushHit,
+      )
+      sensorGroup.add(root)
+      placed.add(d.deviceSn)
+    } else if (d.deviceType === 'SHADE_ACTUATOR') {
+      placeShadeMarker(d.deviceSn, d.zoneId, d.posX, d.posY, d.posZ, W, pushHit)
+      placed.add(d.deviceSn)
+    }
+  }
+
+  for (const sn of ['SHADE-ZONE-A', 'SHADE-ZONE-B'] as const) {
+    if (placed.has(sn)) continue
+    const zoneId = sn.endsWith('B') ? 'ZONE-B' : 'ZONE-A'
+    const x = zoneId === 'ZONE-B' ? 12 : 4
+    placeShadeMarker(sn, zoneId, x, 6.7, 3.5, W, pushHit)
+  }
+
+  // 原子替换：避免重建中途 deviceHitRoots 为空导致点选失败
+  deviceHitRoots = nextHits
+}
+
+function placeShadeMarker(
+  deviceSn: string,
+  zoneId: string | undefined,
+  posX: number,
+  posY: number,
+  posZ: number | null | undefined,
+  W: number,
+  pushHit?: (hit: THREE.Object3D) => void,
+) {
+  if (!markerGroup) return
+  const z = posZ ?? 7.35
+  const root = new THREE.Group()
+  root.position.set(lx(posX), z, posY ?? W * 0.5)
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.08, 0.16, 12),
+    new THREE.MeshStandardMaterial({
+      color: 0x3a3f44,
+      metalness: 0.4,
+      roughness: 0.45,
+      emissive: 0x1c1f22,
+      emissiveIntensity: 0.2,
+    }),
+  )
+  root.add(body)
+  tagDeviceRoot(root, { deviceSn, deviceType: 'SHADE_ACTUATOR', zoneId }, 0.35, pushHit)
+  markerGroup.add(root)
 }
 
 function clearHover() {
@@ -1373,6 +1664,43 @@ function clearHover() {
   hoverB.value = null
   hoverXY.value = ''
   hoverCrop.value = null
+  hoverDevice.value = null
+}
+
+function fillDeviceHover(
+  meta: { deviceSn: string; deviceType?: string; zoneId?: string },
+  clientX: number,
+  clientY: number,
+) {
+  const host = hostRef.value
+  if (!host) return
+  const rect = host.getBoundingClientRect()
+  tooltipPos.value = {
+    x: Math.min(rect.width - 240, Math.max(12, clientX - rect.left + 14)),
+    y: Math.min(rect.height - 120, Math.max(12, clientY - rect.top + 14)),
+  }
+  const st = props.deviceStatuses?.[meta.deviceSn]
+  hoverDevice.value = {
+    deviceSn: meta.deviceSn,
+    deviceType: meta.deviceType,
+    zoneId: meta.zoneId || st?.zoneId,
+    labelZh: st?.labelZh || '设备',
+    tone: st?.tone || 'ok',
+  }
+  hoverCrop.value = null
+}
+
+function pickDeviceFromRay(): { deviceSn: string; deviceType?: string; zoneId?: string } | null {
+  if (!deviceHitRoots.length) return null
+  const hits = raycaster.intersectObjects(deviceHitRoots, false)
+  if (!hits.length) return null
+  const ud = hits[0].object.userData
+  if (!ud?.deviceSn) return null
+  return {
+    deviceSn: String(ud.deviceSn),
+    deviceType: ud.deviceType ? String(ud.deviceType) : undefined,
+    zoneId: ud.zoneId ? String(ud.zoneId) : undefined,
+  }
 }
 
 function fillCropHover(
@@ -1430,29 +1758,69 @@ function fillCropHover(
   hoverXY.value = `${meta.cropNameZh} · ${meta.roleZh}`
 }
 
-function onPointerMove(ev: PointerEvent) {
+function setPointerFromEvent(ev: PointerEvent | WheelEvent) {
   const host = hostRef.value
-  if (!host || !camera) {
-    clearHover()
-    return
-  }
+  if (!host || !camera) return false
   const rect = host.getBoundingClientRect()
   pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1
   pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1
   raycaster.setFromCamera(pointer, camera)
+  return true
+}
+
+function onPointerMove(ev: PointerEvent) {
+  if (sliceDragging) {
+    const step = -ev.movementY * 0.01
+    sliceZ.value = Math.max(
+      SLICE_Z_MIN,
+      Math.min(SLICE_Z_MAX, +(sliceZ.value + step).toFixed(2)),
+    )
+    if (lastLight) updateHeatmap(lastLight)
+    return
+  }
+  if (orbitDragging) return
+  if (hoverRaf) cancelAnimationFrame(hoverRaf)
+  const cx = ev.clientX
+  const cy = ev.clientY
+  hoverRaf = requestAnimationFrame(() => {
+    hoverRaf = 0
+    runHoverPick(cx, cy)
+  })
+}
+
+function runHoverPick(clientX: number, clientY: number) {
+  const host = hostRef.value
+  if (!host || !camera || orbitDragging) {
+    clearHover()
+    return
+  }
+  const rect = host.getBoundingClientRect()
+  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+  raycaster.setFromCamera(pointer, camera)
+
+  const device = pickDeviceFromRay()
+  if (device) {
+    fillDeviceHover(device, clientX, clientY)
+    host.style.cursor = 'pointer'
+    return
+  }
+  host.style.cursor = 'crosshair'
 
   if (cropHitRoots.length) {
     const cropHits = raycaster.intersectObjects(cropHitRoots, false)
     if (cropHits.length) {
       const meta = cropHits[0].object.userData.cropBed
       if (meta) {
-        fillCropHover(meta, ev.clientX, ev.clientY)
+        hoverDevice.value = null
+        fillCropHover(meta, clientX, clientY)
         return
       }
     }
   }
 
   hoverCrop.value = null
+  hoverDevice.value = null
   if (!heatMesh || !heatGrid || props.showHeat === false) {
     clearHover()
     return
@@ -1463,9 +1831,10 @@ function onPointerMove(ev: PointerEvent) {
     return
   }
   const p = hits[0].point
+  const layoutHitX = threeXToLayout(p.x)
   const ix = Math.min(
     heatGrid.nx - 1,
-    Math.max(0, Math.round((p.x / heatGrid.L) * (heatGrid.nx - 1))),
+    Math.max(0, Math.round((layoutHitX / heatGrid.L) * (heatGrid.nx - 1))),
   )
   const iy = Math.min(
     heatGrid.ny - 1,
@@ -1478,14 +1847,56 @@ function onPointerMove(ev: PointerEvent) {
   hoverR.value = heatGrid.r[i]
   hoverG.value = heatGrid.g[i]
   hoverB.value = heatGrid.b[i]
-  hoverXY.value = `z=${sliceZ.value.toFixed(2)}m · x=${p.x.toFixed(1)} · y北=${p.z.toFixed(1)}`
+  hoverXY.value = `z=${sliceZ.value.toFixed(2)}m · x东=${layoutHitX.toFixed(1)} · y北=${p.z.toFixed(1)}`
+}
+
+function onPointerDown(ev: PointerEvent) {
+  ptrDownX = ev.clientX
+  ptrDownY = ev.clientY
+  ptrDownT = Date.now()
+  if (props.showHeat === false || !heatMesh || !camera) return
+  // Shift + 左键拖：上下移动光照切片
+  if (!ev.shiftKey || ev.button !== 0) return
+  if (!setPointerFromEvent(ev)) return
+  const hits = raycaster.intersectObject(heatMesh, false)
+  if (!hits.length) return
+  sliceDragging = true
+  sliceDragPointerId = ev.pointerId
+  if (controls) controls.enabled = false
+  hostRef.value?.setPointerCapture(ev.pointerId)
+  ev.preventDefault()
+}
+
+function onPointerUp(ev: PointerEvent) {
+  if (sliceDragging) {
+    if (sliceDragPointerId != null && ev.pointerId !== sliceDragPointerId) return
+    sliceDragging = false
+    sliceDragPointerId = null
+    if (controls) controls.enabled = true
+    try {
+      hostRef.value?.releasePointerCapture(ev.pointerId)
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+  if (ev.button !== 0 || ev.shiftKey) return
+  const dist = Math.hypot(ev.clientX - ptrDownX, ev.clientY - ptrDownY)
+  if (dist > 8 || Date.now() - ptrDownT > 700) return
+  if (!setPointerFromEvent(ev)) return
+  const device = pickDeviceFromRay()
+  if (device) {
+    emit('selectDevice', device)
+    return
+  }
 }
 
 function onWheel(ev: WheelEvent) {
   if (props.showHeat === false) return
-  // 普通滚轮交给 OrbitControls 缩放；Alt+滚轮 才调整切片高度
-  if (!ev.altKey) return
+  // 普通滚轮：OrbitControls 缩放；Shift/Alt+滚轮：调切片高度
+  if (!ev.shiftKey && !ev.altKey) return
   ev.preventDefault()
+  ev.stopPropagation()
   const step = ev.deltaY > 0 ? -0.05 : 0.05
   sliceZ.value = Math.max(SLICE_Z_MIN, Math.min(SLICE_Z_MAX, +(sliceZ.value + step).toFixed(2)))
   if (lastLight) updateHeatmap(lastLight)
@@ -1496,15 +1907,28 @@ function onSliceInput(ev: Event) {
   if (lastLight) updateHeatmap(lastLight)
 }
 
+function applyFocusZone(force = false) {
+  if (!camera || !controls) return
+  const focus = props.focusZoneId || ''
+  if (!force && focus === focusedZoneKey) return
+  focusedZoneKey = focus
+  const L = Number(lastLight?.lengthM) || 16
+  const W = Number(lastLight?.widthM) || 7
+  const H = Number(lastLight?.ridgeHeightM) || 3.8
+  const cam = focus ? zoneCameraPose(focus, L, W, H) : defaultCameraPose(L, W, H)
+  camera.position.copy(cam.position)
+  controls.target.copy(cam.target)
+  controls.update()
+  if (lastLight) updateHeatmap(lastLight)
+}
+
 function apply(light: GhEffectiveLight | null) {
   if (!light || !scene) return
   lastLight = light
-  if (sliceZ.value === 0.85 && light.measurePlaneZ) {
-    // 首次贴近测光面
-  }
   rebuildStructure(light)
   updateSun(light)
   updateHeatmap(light)
+  syncDevices(light)
 }
 
 function onResize() {
@@ -1524,6 +1948,9 @@ onMounted(async () => {
   if (!host) return
   buildScene(host)
   host.addEventListener('pointermove', onPointerMove)
+  host.addEventListener('pointerdown', onPointerDown)
+  host.addEventListener('pointerup', onPointerUp)
+  host.addEventListener('pointercancel', onPointerUp)
   host.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('resize', onResize)
   ro = new ResizeObserver(() => onResize())
@@ -1545,7 +1972,11 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true
   cancelAnimationFrame(raf)
+  if (hoverRaf) cancelAnimationFrame(hoverRaf)
   hostRef.value?.removeEventListener('pointermove', onPointerMove)
+  hostRef.value?.removeEventListener('pointerdown', onPointerDown)
+  hostRef.value?.removeEventListener('pointerup', onPointerUp)
+  hostRef.value?.removeEventListener('pointercancel', onPointerUp)
   hostRef.value?.removeEventListener('wheel', onWheel)
   window.removeEventListener('resize', onResize)
   ro?.disconnect()
@@ -1557,22 +1988,71 @@ watch(
   () =>
     [
       props.light,
-      props.zoneLights,
       props.showHeat,
       props.heatChannel,
       props.shadeOpenA,
       props.shadeOpenB,
-      props.focusZoneId,
     ] as const,
   () => apply(props.light),
-  { deep: true },
+)
+
+watch(
+  () => [props.deviceStatuses, props.selectedDeviceSn] as const,
+  () => {
+    if (!lastLight) return
+    syncDevices(lastLight)
+  },
+)
+
+watch(
+  () => {
+    const zl = props.zoneLights || {}
+    return (['ZONE-A', 'ZONE-B'] as const)
+      .map((z) => `${z}:${zl[z]?.recipeId || ''}`)
+      .join('|')
+  },
+  () => {
+    // 仅配方真正变化时重建棚体，避免轮询清空 structureKey 重置相机
+    structureKey = ''
+    if (props.light) apply(props.light)
+  },
+)
+
+watch(
+  () => props.focusZoneId,
+  () => applyFocusZone(true),
 )
 </script>
 
 <template>
   <div class="wrap">
     <div ref="hostRef" class="scene" aria-label="智慧光棚三维整跨光场" />
-    <div v-if="hoverCrop" class="crop-tip">
+    <div
+      v-if="hoverDevice"
+      class="crop-tip device-tip"
+      :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
+    >
+      <p class="tip-title">{{ hoverDevice.deviceSn }}</p>
+      <p class="tip-sub">
+        {{ hoverDevice.zoneId || '—' }} ·
+        {{
+          hoverDevice.deviceType === 'GROW_LAMP'
+            ? '补光灯'
+            : hoverDevice.deviceType === 'PAR_SENSOR'
+              ? 'PAR 测点'
+              : hoverDevice.deviceType === 'SHADE_ACTUATOR'
+                ? '遮阳'
+                : hoverDevice.deviceType || '设备'
+        }}
+      </p>
+      <p class="tip-status" :data-tone="hoverDevice.tone">{{ hoverDevice.labelZh }}</p>
+      <p class="tip-muted">点击查看详情并处理</p>
+    </div>
+    <div
+      v-else-if="hoverCrop"
+      class="crop-tip"
+      :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
+    >
       <p class="tip-title">{{ hoverCrop.cropNameZh }} · {{ hoverCrop.roleZh }}</p>
       <p class="tip-sub">{{ hoverCrop.zoneId }} · {{ hoverCrop.stage }}</p>
       <dl class="tip-grid mono">
@@ -1620,16 +2100,20 @@ watch(
     <aside class="hud">
       <p class="sun">{{ sunHud }}</p>
       <p class="model">{{ modelHud }} · {{ sliceHud }}</p>
-      <p class="hint">面北视角：西左东右 · 南为采光侧 · <strong>滚轮缩放</strong> · <strong>Alt+滚轮</strong> 调切片</p>
+      <p class="hint">
+        滚轮缩放 · 点击设备看告警/工单 · <strong>拖滑条</strong> /
+        <strong>Shift+拖切片</strong> / <strong>Shift+滚轮</strong> 调高度
+      </p>
       <p v-if="shadeWarn" class="warn">{{ shadeWarn }}</p>
       <label class="slice-slider">
-        <span>切片高度</span>
+        <span>切片高度 {{ sliceZ.toFixed(2) }} m</span>
         <input
           type="range"
           :min="SLICE_Z_MIN"
           :max="SLICE_Z_MAX"
           step="0.05"
           :value="sliceZ"
+          @pointerdown.stop
           @input="onSliceInput"
         />
       </label>
@@ -1657,7 +2141,7 @@ watch(
         <br />
         <span class="dim">{{ hoverXY }}</span>
       </p>
-      <p v-else class="hint">拖高度/滚轮换层 · 悬停读 R/G/B</p>
+      <p v-else class="hint">悬停读点 · Shift 拖切片换层</p>
     </aside>
   </div>
 </template>
@@ -1682,11 +2166,11 @@ watch(
 .hud {
   position: absolute;
   left: 0.6rem;
-  top: 0.6rem;
-  bottom: auto;
-  max-width: 14rem;
+  bottom: 0.6rem;
+  top: auto;
+  max-width: min(15rem, 42vw);
   padding: 0.45rem 0.55rem;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: var(--ink);
@@ -1696,24 +2180,67 @@ watch(
   border: 1px solid var(--line);
   pointer-events: none;
   box-shadow: var(--shadow-sm);
+  z-index: 2;
+}
+.slice-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.35rem 0 0.25rem;
+  pointer-events: auto;
+  cursor: default;
+}
+.slice-slider span {
+  color: var(--ink-soft);
+  font-size: 0.65rem;
+}
+.slice-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  pointer-events: auto;
+  cursor: pointer;
 }
 .crop-tip {
   position: absolute;
-  z-index: 4;
-  right: 0.6rem;
-  top: 0.6rem;
-  left: auto;
+  z-index: 6;
   min-width: 11rem;
-  max-width: 13.5rem;
-  padding: 0.5rem 0.65rem;
+  max-width: 14rem;
+  padding: 0.55rem 0.7rem;
   background: rgba(29, 29, 31, 0.92);
   color: #f5f5f7;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: var(--shadow-sm);
   pointer-events: none;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   line-height: 1.35;
+}
+.device-tip .tip-status {
+  margin: 0.35rem 0 0.15rem;
+  font-weight: 650;
+}
+.device-tip .tip-status[data-tone='alarm'] {
+  color: #ff6961;
+}
+.device-tip .tip-status[data-tone='offline'] {
+  color: #aeaeb2;
+}
+.device-tip .tip-status[data-tone='wo-pending'] {
+  color: #ffb340;
+}
+.device-tip .tip-status[data-tone='wo-approved'] {
+  color: #64b5ff;
+}
+.device-tip .tip-status[data-tone='wo-progress'] {
+  color: #d4a5ff;
+}
+.device-tip .tip-status[data-tone='ok'] {
+  color: #63e6a0;
+}
+.device-tip .tip-muted {
+  margin: 0;
+  opacity: 0.7;
+  font-size: 0.65rem;
 }
 .sun {
   margin: 0 0 0.3rem;
@@ -1769,7 +2296,7 @@ watch(
 }
 .bar .grad {
   flex: 1;
-  background: linear-gradient(90deg, #05070a, #3a4a58, #c8dce8, #f4fbff);
+  background: linear-gradient(90deg, #ffffff, #ff2a2a);
 }
 .bar .grad.viridis {
   background: linear-gradient(90deg, #440154, #31688e, #35b779, #fde725);

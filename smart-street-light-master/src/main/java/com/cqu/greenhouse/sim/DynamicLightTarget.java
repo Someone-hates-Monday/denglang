@@ -73,7 +73,9 @@ public final class DynamicLightTarget {
     }
 
     /**
-     * 光周期掩码：以正午 12:00 为中心的半余弦窗，窗外为 0（夜间不追瞬时目标）。
+     * 光周期掩码：正午为中心的配方窗。
+     * 窗外为 0；窗内平台为 1（贴配方带）。
+     * 晨昏各约 75 分钟 smoothstep，避免矩形窗在日曲线上变成断崖。
      */
     public static double photoperiodMask(double minuteOfDay, double photoperiodHours) {
         double hours = Math.max(6, Math.min(18, photoperiodHours));
@@ -83,27 +85,32 @@ public final class DynamicLightTarget {
             m += 1440.0;
         }
         double dist = Math.abs(m - 720.0);
-        if (dist >= halfMin) {
+        if (dist > halfMin) {
             return 0;
         }
-        // 中心 1 → 边缘 0
-        return Math.cos((dist / halfMin) * (Math.PI / 2.0));
+        double ramp = Math.min(90.0, Math.max(45.0, halfMin * 0.22));
+        if (dist <= halfMin - ramp) {
+            return 1.0;
+        }
+        double u = (halfMin - dist) / ramp;
+        u = Math.max(0, Math.min(1, u));
+        return u * u * (3.0 - 2.0 * u);
     }
 
     public static double vpdFactor(double vpd) {
-        if (vpd >= VPD_HIGH_KPA) {
-            return 0.85;
+        // 连续分段线性，避免跨阈值时目标带阶跃 → AUTO 横跳
+        double[] xs = {0.40, 0.55, 0.80, 1.00, 1.20, 1.40, 1.60, 1.90};
+        double[] ys = {1.02, 1.02, 1.00, 1.00, 0.98, 0.96, 0.95, 0.94};
+        if (vpd <= xs[0]) {
+            return ys[0];
         }
-        if (vpd >= 1.2) {
-            return 0.92;
+        for (int i = 1; i < xs.length; i++) {
+            if (vpd <= xs[i]) {
+                double t = (vpd - xs[i - 1]) / (xs[i] - xs[i - 1]);
+                return ys[i - 1] + t * (ys[i] - ys[i - 1]);
+            }
         }
-        if (vpd <= VPD_LOW_KPA) {
-            return 1.06;
-        }
-        if (vpd <= 0.8) {
-            return 1.02;
-        }
-        return 1.0;
+        return ys[ys.length - 1];
     }
 
     public static Result compute(GhRecipe recipe, double minuteOfDay,
@@ -140,8 +147,9 @@ public final class DynamicLightTarget {
 
         double catchUp = 1.0;
         if (mask > 0.05 && expected > 0.05) {
-            // 落后则抬目标（最多 +35%），超前则略降（最少 −15%）
-            catchUp = clamp(expected / Math.max(dliSoFar, 0.02), 0.85, 1.35);
+            double ratio = expected / Math.max(dliSoFar, 0.05);
+            catchUp = 1.0 + 0.04 * Math.tanh((ratio - 1.0) * 1.0);
+            catchUp = clamp(catchUp, 0.97, 1.06);
         }
 
         double scale = mask * vf * catchUp;
@@ -165,7 +173,7 @@ public final class DynamicLightTarget {
     private static String buildNote(double mask, double vf, double catchUp, double vpd,
                                     double dliSoFar, double dliMin, double expected) {
         if (mask < 0.05) {
-            return "光周期外 · 瞬时目标≈0（夜间不追配方带）";
+            return "光周期外 · 瞬时目标≈0（夜间不追配方带；有光周期则日出前/日后补光）";
         }
         StringBuilder sb = new StringBuilder("动态目标 = 配方带 × 光周期 × VPD × DLI追赶");
         if (vf < 0.95) {

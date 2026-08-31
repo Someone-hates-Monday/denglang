@@ -2,38 +2,38 @@ package com.cqu.service.impl;
 
 import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.cqu.entity.Users;
 import com.cqu.mapper.UsersMapper;
+import com.cqu.security.RoleCodes;
 import com.cqu.service.IUsersService;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
 /**
- * <p>
- * 用户表 服务实现类
- * </p>
- *
- * @author
- * @since 2026-06-29
+ * 用户表服务：注册默认 GROWER；禁止自选 SYS_ADMIN；登录返回归一化角色。
  */
 @Service
 public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users> implements IUsersService {
 
     @Override
     public Users register(Users users) {
-        // 检查用户名是否已存在
         LambdaQueryWrapper<Users> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Users::getUsername, users.getUsername());
         if (this.count(wrapper) > 0) {
             throw new RuntimeException("用户名已存在");
         }
 
-        // 密码加密
         users.setPassword(BCrypt.hashpw(users.getPassword()));
 
-        // 默认角色：市政人员
-        if (users.getRole() == null || users.getRole().isBlank()) {
-            users.setRole("MUNICIPAL_STAFF");
+        String role = users.getRole();
+        if (role == null || role.isBlank()) {
+            users.setRole(RoleCodes.GROWER);
+        } else {
+            String normalized = RoleCodes.normalize(role);
+            if (!RoleCodes.isRegisterable(normalized)) {
+                throw new RuntimeException("不可注册该角色");
+            }
+            users.setRole(normalized);
         }
 
         this.save(users);
@@ -42,7 +42,6 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users> implements
 
     @Override
     public Users login(String username, String password) {
-        // 根据用户名查询用户
         LambdaQueryWrapper<Users> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Users::getUsername, username);
         Users users = this.getOne(wrapper);
@@ -51,11 +50,11 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users> implements
             throw new RuntimeException("用户名或密码错误");
         }
 
-        // 验证密码
         if (!BCrypt.checkpw(password, users.getPassword())) {
             throw new RuntimeException("用户名或密码错误");
         }
 
+        users.setRole(RoleCodes.normalize(users.getRole()));
         return users;
     }
 }

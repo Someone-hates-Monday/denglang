@@ -26,11 +26,17 @@ ALTER SEQUENCE threshold_config_id_seq RESTART WITH 1;
 -- ============================================================
 -- 1. 用户
 -- ============================================================
+-- admin123 / demo123；六角色对齐 RBAC-ROLES.md
 INSERT INTO users (username, password, role) VALUES
-    ('admin',   '$2a$10$rNgAYknaIvMHYpT18sKd7Ob0AvHvoWwk.6gb.oBiaZsMgzW9Q2idC', 'ADMIN'),
-    ('zhangsan','$2a$10$oDZI6djgYk86X9PEhdPWuuAZ9NhUL69GyCORiUw.Vnv8vd5JUfxg.', 'MUNICIPAL_STAFF'),
-    ('lisi',    '$2a$10$oDZI6djgYk86X9PEhdPWuuAZ9NhUL69GyCORiUw.Vnv8vd5JUfxg.', 'MUNICIPAL_STAFF'),
-    ('wangwu',  '$2a$10$oDZI6djgYk86X9PEhdPWuuAZ9NhUL69GyCORiUw.Vnv8vd5JUfxg.', 'MUNICIPAL_STAFF');
+    ('admin',     '$2a$10$rNgAYknaIvMHYpT18sKd7Ob0AvHvoWwk.6gb.oBiaZsMgzW9Q2idC', 'SYS_ADMIN'),
+    ('changzhang','$2a$10$g3a/r.WvmpvfssJJlROeE.auh5X0iCrPEyIHrv4fJVwvwQO9jPX52', 'SITE_MANAGER'),
+    ('nongyi',    '$2a$10$g3a/r.WvmpvfssJJlROeE.auh5X0iCrPEyIHrv4fJVwvwQO9jPX52', 'AGRONOMIST'),
+    ('zhongzhi',  '$2a$10$g3a/r.WvmpvfssJJlROeE.auh5X0iCrPEyIHrv4fJVwvwQO9jPX52', 'GROWER'),
+    ('yunwei',    '$2a$10$g3a/r.WvmpvfssJJlROeE.auh5X0iCrPEyIHrv4fJVwvwQO9jPX52', 'DEVICE_OPS'),
+    ('xueyuan',   '$2a$10$g3a/r.WvmpvfssJJlROeE.auh5X0iCrPEyIHrv4fJVwvwQO9jPX52', 'TRAINEE'),
+    ('zhangsan',  '$2a$10$oDZI6djgYk86X9PEhdPWuuAZ9NhUL69GyCORiUw.Vnv8vd5JUfxg.', 'GROWER'),
+    ('lisi',      '$2a$10$oDZI6djgYk86X9PEhdPWuuAZ9NhUL69GyCORiUw.Vnv8vd5JUfxg.', 'GROWER'),
+    ('wangwu',    '$2a$10$oDZI6djgYk86X9PEhdPWuuAZ9NhUL69GyCORiUw.Vnv8vd5JUfxg.', 'GROWER');
 
 -- ============================================================
 -- 2. 路灯设备（id 1 = 真机 BearPi 占位 SN-RM-001）

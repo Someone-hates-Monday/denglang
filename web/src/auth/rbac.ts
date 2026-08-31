@@ -28,6 +28,7 @@ export type Capability =
   | 'wo.reject'
   | 'wo.claim'
   | 'wo.complete'
+  | 'dev.view'
   | 'dev.crud'
   | 'dev.debug'
   | 'log.view'
@@ -51,12 +52,42 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 /** 演示账号（Mock / 文档种子） */
 export const DEMO_ACCOUNTS: { username: string; password: string; role: Role; blurb: string }[] = [
-  { username: 'changzhang', password: 'demo123', role: 'SITE_MANAGER', blurb: '全局策略与 AUTO' },
-  { username: 'nongyi', password: 'demo123', role: 'AGRONOMIST', blurb: '配方与工单审批' },
-  { username: 'zhongzhi', password: 'demo123', role: 'GROWER', blurb: '接单执行与现场微调' },
-  { username: 'yunwei', password: 'demo123', role: 'DEVICE_OPS', blurb: '设备档案与调试' },
-  { username: 'xueyuan', password: 'demo123', role: 'TRAINEE', blurb: '只读 + 实训报告' },
-  { username: 'admin', password: 'admin123', role: 'SYS_ADMIN', blurb: '账号与系统配置' },
+  {
+    username: 'changzhang',
+    password: 'demo123',
+    role: 'SITE_MANAGER',
+    blurb: '全局 AUTO / 代批工单 · 设备只读总览',
+  },
+  {
+    username: 'nongyi',
+    password: 'demo123',
+    role: 'AGRONOMIST',
+    blurb: '配方气候 · 审批队列 · 日报告',
+  },
+  {
+    username: 'zhongzhi',
+    password: 'demo123',
+    role: 'GROWER',
+    blurb: '接单执行 · 现场微调（≤80%）',
+  },
+  {
+    username: 'yunwei',
+    password: 'demo123',
+    role: 'DEVICE_OPS',
+    blurb: '设备调试 · 强制调光遮阳',
+  },
+  {
+    username: 'xueyuan',
+    password: 'demo123',
+    role: 'TRAINEE',
+    blurb: '只读观察 · 提交实训报告',
+  },
+  {
+    username: 'admin',
+    password: 'admin123',
+    role: 'SYS_ADMIN',
+    blurb: '全能力 · 用户管理',
+  },
 ]
 
 const ALL: Capability[] = [
@@ -76,6 +107,7 @@ const ALL: Capability[] = [
   'wo.reject',
   'wo.claim',
   'wo.complete',
+  'dev.view',
   'dev.crud',
   'dev.debug',
   'log.view',
@@ -87,6 +119,10 @@ const ALL: Capability[] = [
   'perm.decide',
 ]
 
+/**
+ * 场长：策略与审批，设备只读（dev.view），无标定/强制调试。
+ * 学员：观察 + 报告，无生产区控制、无日志深挖入口能力。
+ */
 const ROLE_CAPS: Record<string, Capability[]> = {
   SITE_MANAGER: [
     'dash.view',
@@ -101,6 +137,7 @@ const ROLE_CAPS: Record<string, Capability[]> = {
     'wo.list',
     'wo.approve',
     'wo.reject',
+    'dev.view',
     'log.view',
     'report.view',
     'report.write',
@@ -123,6 +160,7 @@ const ROLE_CAPS: Record<string, Capability[]> = {
     'wo.list',
     'wo.approve',
     'wo.reject',
+    'dev.view',
     'log.view',
     'report.view',
     'report.write',
@@ -155,6 +193,7 @@ const ROLE_CAPS: Record<string, Capability[]> = {
     'wo.list',
     'wo.claim',
     'wo.complete',
+    'dev.view',
     'dev.crud',
     'dev.debug',
     'log.view',
@@ -163,17 +202,7 @@ const ROLE_CAPS: Record<string, Capability[]> = {
     'contact.send',
     'perm.request',
   ],
-  TRAINEE: [
-    'dash.view',
-    'gh.view',
-    'gh.heat',
-    'wo.list',
-    'log.view',
-    'report.view',
-    'report.write',
-    'contact.send',
-    'perm.request',
-  ],
+  TRAINEE: ['dash.view', 'gh.view', 'gh.heat', 'wo.list', 'report.view', 'report.write'],
   SYS_ADMIN: ALL,
 }
 
@@ -194,64 +223,74 @@ export function can(role: Role | null | undefined, cap: Capability): boolean {
   return (ROLE_CAPS[key] || []).includes(cap)
 }
 
+/** 生产区是否允许手动控灯/遮阳（学员禁止） */
+export function canControlActuators(role: Role | null | undefined): boolean {
+  return can(role, 'ctrl.dim.low') || can(role, 'ctrl.shade')
+}
+
+/** 设备页：只读台账 vs 调试 */
+export function canDebugDevices(role: Role | null | undefined): boolean {
+  return can(role, 'dev.debug')
+}
+
+export function canViewDevices(role: Role | null | undefined): boolean {
+  return can(role, 'dev.view') || can(role, 'dev.debug') || can(role, 'dev.crud')
+}
+
 export function homePathFor(role: Role | null | undefined): string {
   switch (normalizeRole(role)) {
+    case 'SYS_ADMIN':
     case 'SITE_MANAGER':
-    case 'TRAINEE':
-      return '/dashboard'
     case 'AGRONOMIST':
     case 'GROWER':
-      return '/greenhouse'
     case 'DEVICE_OPS':
-      return '/devices'
-    case 'SYS_ADMIN':
-      return '/logs'
+    case 'TRAINEE':
     default:
-      return '/dashboard'
+      return '/greenhouse'
   }
 }
 
 export type NavItem = { to: string; label: string; icon: string; cap?: Capability }
 
 const NAV_ALL: NavItem[] = [
-  { to: '/dashboard', label: '总览', icon: '◉', cap: 'dash.view' },
-  { to: '/greenhouse', label: '冠层光场', icon: '▣', cap: 'gh.view' },
-  { to: '/devices', label: '设备', icon: '◎', cap: 'dev.crud' },
+  { to: '/greenhouse', label: '场务光场', icon: '▣', cap: 'gh.view' },
+  { to: '/devices', label: '设备', icon: '◎', cap: 'dev.view' },
   { to: '/reports', label: '报告', icon: '▤', cap: 'report.view' },
   { to: '/logs', label: '控制日志', icon: '≡', cap: 'log.view' },
   { to: '/users', label: '用户', icon: '☺', cap: 'user.manage' },
 ]
 
-/** 按角色裁剪导航（运维强制看到设备；种植员弱化设备入口） */
+/** 按角色裁剪导航 */
 export function navFor(role: Role | null | undefined): NavItem[] {
   const r = normalizeRole(role)
   const base = NAV_ALL.filter((item) => {
     if (!item.cap) return true
-    if (item.to === '/devices') {
-      return r === 'DEVICE_OPS' || r === 'SYS_ADMIN' || can(r, 'dev.debug')
-    }
+    if (item.to === '/devices') return canViewDevices(r)
     if (item.to === '/users') return can(r, 'user.manage')
-    if (item.to === '/reports') {
-      return r === 'SITE_MANAGER' || r === 'AGRONOMIST' || r === 'TRAINEE' || r === 'SYS_ADMIN'
-    }
+    if (item.to === '/logs') return can(r, 'log.view')
+    if (item.to === '/reports') return can(r, 'report.view')
     return can(r, item.cap)
   })
 
-  // 种植员：光场优先，无设备管理入口
-  if (r === 'GROWER') {
-    return base.filter((i) => i.to !== '/devices' && i.to !== '/users')
-  }
-  // 农艺：弱化设备
-  if (r === 'AGRONOMIST') {
-    return base.filter((i) => i.to !== '/devices' && i.to !== '/users')
-  }
-  // 学员：无日志深挖可保留查看；无用户/设备
+  // 学员：仅光场观察 + 报告
   if (r === 'TRAINEE') {
-    return base.filter((i) => i.to === '/dashboard' || i.to === '/greenhouse' || i.to === '/reports')
+    return base.filter((i) => i.to === '/greenhouse' || i.to === '/reports')
   }
-  // 运维：设备 + 日志为主，保留光场只读入口
+  // 种植员：光场优先，无用户；设备页无入口（无 dev.view）
+  if (r === 'GROWER') {
+    return base.filter((i) => i.to !== '/users')
+  }
+  // 农艺：可看设备只读总览，无用户
+  if (r === 'AGRONOMIST') {
+    return base.filter((i) => i.to !== '/users')
+  }
+  // 场长：光场 + 设备只读 + 报告 + 日志
+  if (r === 'SITE_MANAGER') {
+    return base.filter((i) => i.to !== '/users')
+  }
+  // 运维：设备为主，保留光场/日志/报告
   if (r === 'DEVICE_OPS') {
-    return base.filter((i) => i.to !== '/users' && i.to !== '/reports')
+    return base.filter((i) => i.to !== '/users')
   }
   return base
 }
@@ -264,3 +303,22 @@ export const REGISTERABLE_ROLES: Role[] = [
   'DEVICE_OPS',
   'TRAINEE',
 ]
+
+export function roleFocusZh(role: Role | null | undefined): string {
+  switch (normalizeRole(role)) {
+    case 'SITE_MANAGER':
+      return '全局策略 · 设备只读 · 代批紧急工单'
+    case 'AGRONOMIST':
+      return '配方气候 · 审批 · 日光合报告'
+    case 'GROWER':
+      return '接单执行 · 现场微调'
+    case 'DEVICE_OPS':
+      return '设备台账与强制调试'
+    case 'TRAINEE':
+      return '只读观察 · 实训报告'
+    case 'SYS_ADMIN':
+      return '全系统配置'
+    default:
+      return ''
+  }
+}

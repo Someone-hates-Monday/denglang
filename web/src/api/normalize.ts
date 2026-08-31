@@ -74,10 +74,15 @@ export function normalizeLatestLight(raw: Record<string, unknown>): LatestLight 
 }
 
 export function normalizeAlarm(raw: Record<string, unknown>): AlarmLog {
+  const deviceName =
+    String(raw.deviceName ?? '') ||
+    String(raw.deviceSn ?? '') ||
+    String(raw.zoneId ?? '') ||
+    '光棚'
   return {
     id: String(raw.id ?? ''),
     deviceId: asNumber(raw.deviceId),
-    deviceName: String(raw.deviceName ?? ''),
+    deviceName,
     alarmType: String(raw.alarmType ?? ''),
     message: String(raw.message ?? ''),
     status: raw.status as AlarmLog['status'],

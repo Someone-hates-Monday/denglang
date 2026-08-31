@@ -7,6 +7,8 @@ import {
   bedHasL1Tier,
   cropLabel,
 } from './cropCatalog'
+import { makeAccentLabelSprite } from './labelSprite'
+import { layoutX } from './layoutCoords'
 import type { GhRecipe } from '../api/greenhouse'
 
 export type ZoneCropInput = {
@@ -119,45 +121,6 @@ export function loadGreenhouseAssets(): Promise<GhAssetPack> {
   return cache
 }
 
-function makeCropLabel(text: string, accentHex: string): THREE.Sprite {
-  const canvas = document.createElement('canvas')
-  canvas.width = 420
-  canvas.height = 72
-  const ctx = canvas.getContext('2d')!
-  ctx.clearRect(0, 0, 420, 72)
-  ctx.fillStyle = 'rgba(29,29,31,0.82)'
-  roundRect(ctx, 8, 10, 404, 52, 10)
-  ctx.fill()
-  ctx.fillStyle = accentHex
-  ctx.fillRect(8, 10, 6, 52)
-  ctx.fillStyle = '#f5f5f7'
-  ctx.font = '600 22px system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText(text, 210, 44)
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }),
-  )
-  spr.scale.set(2.4, 0.42, 1)
-  return spr
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.arcTo(x + w, y, x + w, y + h, r)
-  ctx.arcTo(x + w, y + h, x, y + h, r)
-  ctx.arcTo(x, y + h, x, y, r)
-  ctx.arcTo(x, y, x + w, y, r)
-  ctx.closePath()
-}
-
 function accentCss(): string {
   return `#${CROP_META[BAY_SINGLE_CROP].color.toString(16).padStart(6, '0')}`
 }
@@ -172,6 +135,7 @@ export function placeGlbStructure(
 
   const shell = assets.shell.clone(true)
   shell.name = 'glb-shell'
+  shell.scale.x = -Math.abs(shell.scale.x)
   parent.add(shell)
 
   for (const bed of BEDS) {
@@ -184,7 +148,7 @@ export function placeGlbStructure(
     const l1 = unit.getObjectByName('tier-l1')
     if (l1) l1.visible = bedHasL1Tier(bed.bedId)
 
-    unit.position.set(bed.x, 0, bed.z)
+    unit.position.set(layoutX(bed.x), 0, bed.z)
     unit.userData.cropBed = {
       bedId: bed.bedId,
       zoneId: bed.zoneId,
@@ -207,7 +171,7 @@ export function placeGlbStructure(
     hit.userData.cropBed = unit.userData.cropBed
     unit.add(hit)
 
-    const lab = makeCropLabel(`${info.nameZh} · ${bed.roleZh}`, accentCss())
+    const lab = makeAccentLabelSprite(`${info.nameZh} · ${bed.roleZh}`, accentCss(), 2.6)
     lab.position.set(0, bedHasL1Tier(bed.bedId) ? 2.35 : 1.75, 0)
     lab.userData.cropBed = unit.userData.cropBed
     unit.add(lab)
@@ -224,36 +188,9 @@ export function makeGlbLamp(
   y: number,
   z: number,
   dim: number,
+  isL1 = false,
 ): THREE.Object3D {
-  if (assets.lamp) {
-    const g = assets.lamp.clone(true)
-    g.scale.setScalar(0.58)
-    g.position.set(x, z, y)
-    g.traverse((obj) => {
-      const m = obj as THREE.Mesh
-      if (m.isMesh && m.material && !Array.isArray(m.material)) {
-        const mat = (m.material as THREE.MeshStandardMaterial).clone()
-        if ('emissiveIntensity' in mat) mat.emissiveIntensity = 0.15 + dim * 1.1
-        mat.depthWrite = true
-        m.renderOrder = 4
-        m.material = mat
-      }
-    })
-    return g
-  }
-  const bar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.35, 0.03, 0.08),
-    new THREE.MeshStandardMaterial({
-      color: 0x252528,
-      emissive: 0xffe082,
-      emissiveIntensity: 0.2 + dim * 1.2,
-      metalness: 0.4,
-      roughness: 0.4,
-      flatShading: true,
-    }),
-  )
-  bar.position.set(x, z, y)
-  return bar
+  return placeLedStrip(assets, x, y, z, dim, isL1)
 }
 
 /** 重置缓存（热更新调试用） */

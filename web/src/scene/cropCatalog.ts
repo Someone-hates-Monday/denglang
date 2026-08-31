@@ -44,16 +44,16 @@ export const CROP_META: Record<
 }
 
 export const BEDS: BedCropSpec[] = [
-  { bedId: 'BED-A-S', zoneId: 'ZONE-A', x: 4, z: 1.4, x0: 0.5, x1: 7.5, y0: 1.0, y1: 1.8, roleZh: '南床' },
-  { bedId: 'BED-A-M', zoneId: 'ZONE-A', x: 4, z: 3.5, x0: 0.5, x1: 7.5, y0: 3.1, y1: 3.9, roleZh: '中床' },
-  { bedId: 'BED-A-N', zoneId: 'ZONE-A', x: 4, z: 5.6, x0: 0.5, x1: 7.5, y0: 5.2, y1: 6.0, roleZh: '北床' },
-  { bedId: 'BED-B-S', zoneId: 'ZONE-B', x: 12, z: 1.4, x0: 8.5, x1: 15.5, y0: 1.0, y1: 1.8, roleZh: '南床' },
-  { bedId: 'BED-B-M', zoneId: 'ZONE-B', x: 12, z: 3.5, x0: 8.5, x1: 15.5, y0: 3.1, y1: 3.9, roleZh: '中床' },
-  { bedId: 'BED-B-N', zoneId: 'ZONE-B', x: 12, z: 5.6, x0: 8.5, x1: 15.5, y0: 5.2, y1: 6.0, roleZh: '北床' },
+  { bedId: 'BED-A-S', zoneId: 'ZONE-A', x: 4, z: 1.4, x0: 0.5, x1: 7.5, y0: 0.8, y1: 2.0, roleZh: '南床' },
+  { bedId: 'BED-A-M', zoneId: 'ZONE-A', x: 4, z: 3.5, x0: 0.5, x1: 7.5, y0: 2.9, y1: 4.1, roleZh: '中床' },
+  { bedId: 'BED-A-N', zoneId: 'ZONE-A', x: 4, z: 5.6, x0: 0.5, x1: 7.5, y0: 5.0, y1: 6.2, roleZh: '北床' },
+  { bedId: 'BED-B-S', zoneId: 'ZONE-B', x: 12, z: 1.4, x0: 8.5, x1: 15.5, y0: 0.8, y1: 2.0, roleZh: '南床' },
+  { bedId: 'BED-B-M', zoneId: 'ZONE-B', x: 12, z: 3.5, x0: 8.5, x1: 15.5, y0: 2.9, y1: 4.1, roleZh: '中床' },
+  { bedId: 'BED-B-N', zoneId: 'ZONE-B', x: 12, z: 5.6, x0: 8.5, x1: 15.5, y0: 5.0, y1: 6.2, roleZh: '北床' },
 ]
 
-/** 石斛 L1 组培/炼苗搁架：仅中床、北床（南床留强自然光对照） */
-export const L1_BED_IDS = new Set(['BED-A-M', 'BED-A-N'])
+/** 石斛 L1 组培/炼苗搁架：东西半跨中床、北床（南床留强自然光对照） */
+export const L1_BED_IDS = new Set(['BED-A-M', 'BED-A-N', 'BED-B-M', 'BED-B-N'])
 
 export function bedHasL1Tier(bedId: string): boolean {
   return L1_BED_IDS.has(bedId)

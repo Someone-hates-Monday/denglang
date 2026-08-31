@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useRealtimeStore } from '../stores/realtime'
 import { isMockMode } from '../config/runtime'
-import { navFor } from '../auth/rbac'
+import { navFor, roleFocusZh } from '../auth/rbac'
 import BrandIcon from '../components/BrandIcon.vue'
 import AgriAgent from '../components/AgriAgent.vue'
 
@@ -14,6 +14,7 @@ const route = useRoute()
 const router = useRouter()
 
 const nav = computed(() => navFor(auth.role))
+const focus = computed(() => roleFocusZh(auth.role))
 
 onMounted(() => realtime.connect())
 
@@ -25,7 +26,7 @@ async function onLogout() {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ 'scene-home': route.name === 'greenhouse' }">
     <aside class="rail">
       <div class="brand">
         <div class="brand-icon">
@@ -53,6 +54,7 @@ async function onLogout() {
         <div class="user-card">
           <p class="who">{{ auth.session?.username }}</p>
           <p class="role">{{ auth.roleLabel }}</p>
+          <p v-if="focus" class="focus">{{ focus }}</p>
         </div>
         <p class="mode mono">
           {{ isMockMode ? 'Mock' : 'HTTP' }} · {{ realtime.connected ? 'Live' : 'Off' }}
@@ -62,10 +64,11 @@ async function onLogout() {
     </aside>
 
     <div class="main">
-      <header class="top">
+      <header class="top" :class="{ compact: route.name === 'greenhouse' }">
         <div class="top-text">
           <h1>{{ route.meta.title }}</h1>
-          <p class="subtitle">{{ route.meta.title }} · 智慧光棚</p>
+          <p v-if="route.name !== 'greenhouse'" class="subtitle">{{ route.meta.title }} · 智慧光棚</p>
+          <p v-else class="subtitle">三维冠层为主 · 调控与曲线收入侧栏</p>
         </div>
         <div class="status-pill" :data-on="realtime.connected">
           <span class="dot" />
@@ -222,6 +225,13 @@ async function onLogout() {
   font-weight: 500;
 }
 
+.focus {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
 .mode {
   margin: 0;
   font-size: var(--text-xs);
@@ -263,6 +273,19 @@ async function onLogout() {
   align-items: center;
   padding: var(--space-8) var(--page-pad) var(--space-4);
   flex-shrink: 0;
+}
+
+.top.compact {
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.top.compact h1 {
+  font-size: var(--text-xl);
+}
+
+.shell.scene-home .content {
+  padding-bottom: var(--space-2);
 }
 
 .top-text h1 {

@@ -1,10 +1,12 @@
 # 本地联调基础设施：PostgreSQL(pgvector) + EMQX
 # 光棚仿真在 Spring Boot 进程内（greenhouse.sim），不另起容器。
 # 路灯模拟灯可选：docker compose --profile lamp-fleet up -d
+# 光棚 MQTT 硬件路径（command ACK）：docker compose --profile gh-hw-sim up -d
 #
 # 用法：
 #   docker compose up -d
 #   docker compose --profile lamp-fleet up -d   # 另起 7 盏路灯 MQTT 模拟
+#   docker compose --profile gh-hw-sim up -d    # 光棚执行器 ACK + 心跳
 #   docker compose --profile lamp-fleet down    # 停掉含 fleet 的栈时用
 
 services:
@@ -57,6 +59,25 @@ services:
     volumes:
       - ./scripts/mqtt-fleet-loop.sh:/fleet-loop.sh:ro
     command: ["sh", "/fleet-loop.sh"]
+    depends_on:
+      emqx:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 光棚硬件路径：订阅 command 回 status；可与进程内仿真并行（sim.* 仍本地 SUCCESS）
+  gh-hw-sim:
+    profiles: ["gh-hw-sim"]
+    image: eclipse-mosquitto:2
+    container_name: streetlight-gh-hw-sim
+    network_mode: "service:emqx"
+    environment:
+      INTERVAL_SEC: "4"
+      BROKER_HOST: "127.0.0.1"
+      BROKER_PORT: "1883"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./scripts/mqtt-greenhouse-loop.sh:/gh-loop.sh:ro
+    command: ["sh", "/gh-loop.sh"]
     depends_on:
       emqx:
         condition: service_healthy

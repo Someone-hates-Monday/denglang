@@ -21,3 +21,7 @@ greenhouse:
     enabled: true
     interval-ms: 250
     day-compress-sec: 120
+    # 进程内仿真默认不外发 telemetry，避免 broker 回环；抓包演示可改 true
+    publish-mqtt-telemetry: false
+  control:
+    command-timeout-sec: 30

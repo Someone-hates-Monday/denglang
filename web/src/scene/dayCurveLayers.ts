@@ -36,14 +36,18 @@ const ZONE_COLORS: Record<string, string> = {
 
 const BED_COLORS = ['#0071e3', '#5ac8fa', '#5856d6', '#34c759', '#30d158', '#248a3d']
 
-/** 测点与床对应（layout cq-demo-bay-v1） */
+/** 测点与床对应（layout v1.5：L0 每床 5×PAR；中/北床 L1 另 5×PAR） */
 export const SENSORS_BY_BED: Record<string, string[]> = {
-  'BED-A-S': ['PAR-ZONE-A-01', 'PAR-ZONE-A-02', 'PAR-ZONE-A-03'],
-  'BED-A-M': ['PAR-ZONE-A-04', 'PAR-ZONE-A-05', 'PAR-ZONE-A-06'],
-  'BED-A-N': ['PAR-ZONE-A-07', 'PAR-ZONE-A-08', 'PAR-ZONE-A-09'],
-  'BED-B-S': ['PAR-ZONE-B-01', 'PAR-ZONE-B-02', 'PAR-ZONE-B-03'],
-  'BED-B-M': ['PAR-ZONE-B-04', 'PAR-ZONE-B-05', 'PAR-ZONE-B-06'],
-  'BED-B-N': ['PAR-ZONE-B-07', 'PAR-ZONE-B-08', 'PAR-ZONE-B-09'],
+  'BED-A-S': ['PAR-ZONE-A-01', 'PAR-ZONE-A-02', 'PAR-ZONE-A-03', 'PAR-ZONE-A-04', 'PAR-ZONE-A-05'],
+  'BED-A-M': ['PAR-ZONE-A-06', 'PAR-ZONE-A-07', 'PAR-ZONE-A-08', 'PAR-ZONE-A-09', 'PAR-ZONE-A-10'],
+  'BED-A-N': ['PAR-ZONE-A-11', 'PAR-ZONE-A-12', 'PAR-ZONE-A-13', 'PAR-ZONE-A-14', 'PAR-ZONE-A-15'],
+  'BED-A-M-L1': ['PAR-ZONE-A-L1-01', 'PAR-ZONE-A-L1-02', 'PAR-ZONE-A-L1-03', 'PAR-ZONE-A-L1-04', 'PAR-ZONE-A-L1-05'],
+  'BED-A-N-L1': ['PAR-ZONE-A-L1-06', 'PAR-ZONE-A-L1-07', 'PAR-ZONE-A-L1-08', 'PAR-ZONE-A-L1-09', 'PAR-ZONE-A-L1-10'],
+  'BED-B-S': ['PAR-ZONE-B-01', 'PAR-ZONE-B-02', 'PAR-ZONE-B-03', 'PAR-ZONE-B-04', 'PAR-ZONE-B-05'],
+  'BED-B-M': ['PAR-ZONE-B-06', 'PAR-ZONE-B-07', 'PAR-ZONE-B-08', 'PAR-ZONE-B-09', 'PAR-ZONE-B-10'],
+  'BED-B-N': ['PAR-ZONE-B-11', 'PAR-ZONE-B-12', 'PAR-ZONE-B-13', 'PAR-ZONE-B-14', 'PAR-ZONE-B-15'],
+  'BED-B-M-L1': ['PAR-ZONE-B-L1-01', 'PAR-ZONE-B-L1-02', 'PAR-ZONE-B-L1-03', 'PAR-ZONE-B-L1-04', 'PAR-ZONE-B-L1-05'],
+  'BED-B-N-L1': ['PAR-ZONE-B-L1-06', 'PAR-ZONE-B-L1-07', 'PAR-ZONE-B-L1-08', 'PAR-ZONE-B-L1-09', 'PAR-ZONE-B-L1-10'],
 }
 
 export function bedShortLabel(bedId: string): string {
@@ -232,6 +236,28 @@ export function buildChartLayers(
     const layers: CurveLayerDef[] = []
     if (a?.series?.length) {
       layers.push({
+        id: 'ZONE-A-natural',
+        label: '西半跨 调整前',
+        color: '#8ec5ff',
+        series: a.series,
+        getValue: (p) => p.naturalPpfd,
+        width: 1.5,
+        dashed: true,
+      })
+    }
+    if (b?.series?.length) {
+      layers.push({
+        id: 'ZONE-B-natural',
+        label: '东半跨 调整前',
+        color: '#8ce0a0',
+        series: b.series,
+        getValue: (p) => p.naturalPpfd,
+        width: 1.5,
+        dashed: true,
+      })
+    }
+    if (a?.series?.length) {
+      layers.push({
         id: 'ZONE-A',
         label: '西半跨 调控后',
         color: ZONE_COLORS['ZONE-A'],
@@ -253,7 +279,7 @@ export function buildChartLayers(
     if (a?.series?.length && b?.series?.length) {
       layers.push({
         id: 'BAY-AVG',
-        label: '整跨平均',
+        label: '整跨平均(调控后)',
         color: '#5856d6',
         series: bayAvgSeries(a.series, b.series),
         getValue: (p) => p.controlledPpfd,
@@ -274,7 +300,11 @@ export function buildChartLayers(
         label: bedShortLabel(bed.bedId),
         color: BED_COLORS[i % BED_COLORS.length],
         series: el.series,
-        getValue: (p) => p.bedPpfd?.[bed.bedId] ?? p.controlledPpfd,
+        getValue: (p) => {
+          const v = p.bedPpfd?.[bed.bedId]
+          // 缺分床采样时不回退到区均值，避免六床曲线叠成一根
+          return v != null && Number.isFinite(v) ? v : Number.NaN
+        },
         width: bed.bedId === focusBedId ? 2.8 : 1.75,
       })
     })
@@ -289,10 +319,13 @@ export function buildChartLayers(
     const layers: CurveLayerDef[] = sns.map((sn, i) => ({
       id: sn,
       label: sn.replace('PAR-', '').replace('ZONE-', ''),
-      color: ['#0071e3', '#5ac8fa', '#5856d6'][i] ?? '#86868b',
+      color: ['#0071e3', '#5ac8fa', '#5856d6', '#34c759', '#ff9500'][i] ?? '#86868b',
       series: el?.series ?? [],
-      getValue: (p) => p.sensorPpfd?.[sn] ?? 0,
-      width: 2,
+      getValue: (p) => {
+        const v = p.sensorPpfd?.[sn]
+        return v != null && Number.isFinite(v) ? v : Number.NaN
+      },
+      width: 1.75,
     }))
     return { anchor: el?.series ?? anchor, layers }
   }

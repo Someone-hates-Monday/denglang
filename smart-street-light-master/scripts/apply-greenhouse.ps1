@@ -7,7 +7,15 @@ $Files = @(
   "V20260830b_layout_cq_demo_bay_v1.sql",
   "V20260830c_layout_v1_1_heights.sql",
   "V20260830d_layout_v1_2_per_bed.sql",
-  "V20260830e_sensor_under_lamp.sql"
+  "V20260830e_sensor_under_lamp.sql",
+  "V20260831_layout_v1_3_lighting.sql",
+  "V20260831_layout_v1_4_real_scale.sql",
+  "V20260831_layout_v1_4b_l1_symmetric.sql",
+  "V20260831_layout_v1_5_dual_tier_bars.sql",
+  "V20260831_single_crop_dendrobium.sql",
+  "V20260831_rbac_roles.sql",
+  "V20260831_gh_alarms.sql",
+  "V20260831_gh_reports.sql"
 )
 
 if (-not (docker ps --filter name=streetlight-pg --format "{{.Names}}")) {

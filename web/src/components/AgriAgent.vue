@@ -63,7 +63,7 @@ function dendrobiumRecipes(): Knowledge[] {
         '铁皮石斛是本棚主叙事作物，分两个阶段配方（PPFD 为冠层光合有效辐射）：\n' +
         '· 组培（TISSUE）：目标带 60–70，硬限 50–90 µmol·m⁻²·s⁻¹，DLI ~2.2–3.0。\n' +
         '· 栽培（CULTIVATION）：目标带 90–120，硬限 70–140 µmol·m⁻²·s⁻¹，DLI ~3.9–5.2。\n' +
-        '控光策略：低于硬限自动补光，高于硬限自动遮阳（欠光补、过光遮）。\n' +
+        '控光策略（经济性）：欠光先开遮阳再补光；过光先降补光，硬限再用遮阳粗档。\n' +
         (recipeLine || '（当前未读到实时配方数据）'),
     },
     {
@@ -82,7 +82,7 @@ function dendrobiumRecipes(): Knowledge[] {
         '铁皮石斛种植要点（结合本棚设计）：\n' +
         '· 光：栽培阶段目标 90–120 PPFD，怕强直射（棚南侧正午光强，靠外遮阳挡）。\n' +
         '· 摆放：A区高架苗床，部分床上方设组培/炼苗搁架，双层叠栽提高空间利用率。\n' +
-        '· 控光闭环：欠光自动补光，过光自动遮阳，大动作走农艺工单待审。',
+        '· 控光闭环：欠光补光、过光先降灯；大开度变更进 PENDING 工单，approve≠下发。',
     },
   ]
 }
@@ -99,7 +99,7 @@ function strawberryRecipes(): Knowledge[] {
         '· 目标 DLI：约 17–25 mol·m⁻²·d⁻¹（国际园艺指南）。\n' +
         '· 光效：研究发现 LED 补光相对对照可增产约 33–56%，采收提前约 10 天；\n' +
         '  常配红蓝光 9/1 光质，动态补光电能效率优于盲目高功率。\n' +
-        '（当前 B 区默认为金线莲配方，草莓配方用于切换演示）',
+        '（3D 演示冻结整跨铁皮石斛；草莓配方仍可用于切换/对照演示）',
     },
     {
       keys: ['草莓', '温度', '湿度', '管理', '种植'],
@@ -130,10 +130,10 @@ function anoectochilusRecipes(): Knowledge[] {
       keys: ['金线莲', '种植', '怎么', '养', '管理'],
       topic: '台湾金线莲种植',
       answer:
-        '台湾金线莲喜荫蔽高湿环境，B区为中北床密植或草莓高架槽切换：\n' +
+        '台湾金线莲喜荫蔽高湿环境：\n' +
         '· 光：耐阴，PPFD 25–35 即可，强光需重遮阴。\n' +
         '· 湿度：需较高空气湿度，避免强光直晒萎蔫。\n' +
-        '· 定位：作为耐阴对照与配方切换演示作物（金线莲 ⇄ 草莓），验证“作物-配方解耦”。',
+        '· 定位：耐阴对照与配方切换知识作物（演示主叙事仍为整跨石斛），验证“作物-配方解耦”。',
     },
   ]
 }
@@ -154,16 +154,16 @@ function generalRecipes(): Knowledge[] {
       topic: '自动补光/遮阳与工单',
       answer:
         '本棚采用“测光 → 光配方 → 补光/遮阳闭环 → 农艺工单”链路：\n' +
-        '· 有效 PPFD 低于硬限 → 自动补光（灯 dim 上调）。\n' +
-        '· 有效 PPFD 高于硬限 → 自动遮阳（遮阳网开度下调）。\n' +
-        '· 超过审批阈值的大动作会生成 PENDING 农艺工单，需场长批准/驳回后执行，保证可审计。',
+        '· 欠光：优先开遮阳拿免费日光，再升补光（光周期内）。\n' +
+        '· 过光：先降补光，硬限再用遮阳粗档（避免挡日光又开灯）。\n' +
+        '· 超过审批阈值的大动作 → PENDING 工单；农艺 approve 不下发，种植员 claim 才下发。',
     },
     {
       keys: ['大棚', '棚', '重庆', '气候', '仿真', '压缩'],
       topic: '大棚与仿真',
       answer:
         '本棚为 cq-demo-bay-v1，重庆示范单跨拱棚（16×7 m，长轴东西，南向采光）：\n' +
-        '· 分区：ZONE-A 铁皮石斛、ZONE-B 金线莲/草莓切换。\n' +
+        '· 作物：3D 演示整跨铁皮石斛；ZONE-A/B 为半跨控光分区（非混种）。\n' +
         '· 重庆日型：冬雾寡照、夏正午强光驱动自然光项；一天压缩为 120 秒连续仿真。\n' +
         '· 外遮阳：北侧卷轴向南展开，覆盖半跨屋面投影（约遮 55%）。',
     },
@@ -218,10 +218,10 @@ function layoutRecipes(): Knowledge[] {
       keys: ['分区', 'zone', '床', '床位', 'a区', 'b区', '布局', '栽培'],
       topic: '功能分区与床位',
       answer:
-        '两区布局：ZONE-A（X 0.5–7.5 m）铁皮石斛，ZONE-B（X 8.5–15.5 m）金线莲⇄草莓切换；\n' +
-        '中央横通道 7.5–8.5 m 供人行/管线。\n' +
-        '每区 3 条东西向床：南床（Y 1.0–1.8）、中床（Y 3.1–3.9）、北床（Y 5.2–6.0），床面抬高 0.2 m；\n' +
-        '冠层测光面：A 区 0.5 m、B 区 0.45 m。南北自然光梯度：南床 ×1.06、北床 ×0.94。',
+        '两半跨控光分区（演示作物均为铁皮石斛，不混种）：\n' +
+        'ZONE-A（X 0.5–7.5 m）、ZONE-B（X 8.5–15.5 m）；中央横通道 7.5–8.5 m。\n' +
+        '每区 3 条东西向床：南/中/北床，床面抬高；东西半跨中北床均有组培搁架（L1），南床单层留自然光对照。\n' +
+        '冠层测光面约 0.45–0.5 m。南北自然光梯度：南床 ×1.06、北床 ×0.94。',
     },
     {
       keys: ['灯', '布灯', '灯位', '灯高', '吊灯', '灯具', '安装', '分床'],
@@ -279,8 +279,8 @@ function rbacRecipes(): Knowledge[] {
       keys: ['角色', '权限', '账号', '登录', '密码', '身份', 'rbac', '场长', '农艺师', '种植员', '运维', '学员', '系统管理员', '哪个'],
       topic: '六角色与演示账号',
       answer:
-        '六类角色：场长 SITE_MANAGER（全局策略/报告）、农艺师 AGRONOMIST（配方/审批）、\n' +
-        '种植员 GROWER（接单执行）、设备运维 DEVICE_OPS（设备/调试）、学员 TRAINEE（只读实训）、系统管理员 SYS_ADMIN（账号/仿真）。\n' +
+        '六类角色：场长 SITE_MANAGER（全局策略 / 设备只读 / 报告批阅）、农艺师 AGRONOMIST（配方/审批）、\n' +
+        '种植员 GROWER（接单执行）、设备运维 DEVICE_OPS（设备调试）、学员 TRAINEE（只读观察+实训报告）、系统管理员 SYS_ADMIN（账号/仿真）。\n' +
         '演示账号：admin/admin123（系统）、changzhang/demo123（场长）、nongyi/demo123（农艺）、\n' +
         'zhongzhi/demo123（种植）、yunwei/demo123（运维）、xueyuan/demo123（学员）。',
     },
@@ -290,7 +290,7 @@ function rbacRecipes(): Knowledge[] {
       answer:
         '工单状态机：PENDING（待批）→ APPROVED（已批）→ IN_PROGRESS（接单）→ COMPLETED（完成），\n' +
         '可 REJECTED（驳回）；超时未接单可升级通知场长。\n' +
-        '关键约定：approve 只批准、不直接下发执行器；种植员接单/显式 execute 后才真正下发，全程可审计。',
+        '关键约定：approve 只批准、不直接下发；种植员 claim（接单执行）后才真正下发并完成，全程可审计。',
     },
     {
       keys: ['权限申请', '申请', '临时', 'grant', '维护窗', '紧急', '沙箱', '越权'],
@@ -344,11 +344,11 @@ function systemRecipes(): Knowledge[] {
       keys: ['规则', '闭环', '控制', 'cooldown', '冷却', '硬限', '目标带', '光周期', '逻辑', '怎么控'],
       topic: '控制规则细节',
       answer:
-        '规则引擎每周期读区有效 PPFD：\n' +
-        '· 高于硬限：优先降遮阳开度，仍高再降补光；\n' +
-        '· 低于硬限：优先升补光（光周期内），遮阳过厚再收网；\n' +
-        '· 目标带内做微调；带 60s cooldown 防抖。\n' +
-        '大开度（≥80）变更进 PENDING 工单、禁直发；光周期外默认关灯（MVP）。',
+        '规则引擎每周期读区有效 PPFD（与 LightEconomics 一致）：\n' +
+        '· 高于硬限：先降补光；灯已关或仍超硬限再关遮阳粗档；\n' +
+        '· 低于硬限：先开遮阳（免费日光），再升补光（光周期内）；\n' +
+        '· 目标带内微调；cooldown 防抖。\n' +
+        '大开度（≥ approveDimAbove/Shade，默认 80）进 PENDING 工单、禁直发；光周期外默认关灯（MVP）。',
     },
   ]
 }
@@ -434,7 +434,7 @@ function liveRealTimeAnswer(q: string): string | null {
       `当前配方：${r.recipe.cropNameZh}（${r.recipe.stage}）目标带 ${r.recipe.ppfdTargetMin}–${r.recipe.ppfdTargetMax} PPFD`,
     )
   }
-  return `🌡 当前 ZONE-A 棚内实时光环境：\n${parts.join('\n')}`
+  return `当前 ZONE-A 棚内实时光环境：\n${parts.join('\n')}`
 }
 
 /* 默认兜底 */
@@ -457,13 +457,12 @@ function answer(q: string): string {
     return `我可以解答：\n${ALL}\n以及棚内实时光环境（PPFD、DLI、遮阳、温湿度）。`
   }
 
-  /* 知识库优先匹配 */
-  const k = bestKnowledge(t)
-  if (k) return k.answer
-
-  /* 实时光环境（仅明确时间词） */
+  /* 明确「当前/现在」光环境意图优先于知识库（避免 “当前 PPFD” 被 ppfd 关键词抢走） */
   const liveAns = liveRealTimeAnswer(t)
   if (liveAns) return liveAns
+
+  const k = bestKnowledge(t)
+  if (k) return k.answer
 
   return fallback(t)
 }
@@ -528,7 +527,7 @@ onUnmounted(() => {
           <span class="dot" />
           <div>
             <strong>智慧光棚 · 农艺助手</strong>
-            <small>铁皮石斛 / 设施草莓 / 金线莲</small>
+            <small>整跨石斛 · 配方知识含草莓/金线莲</small>
           </div>
         </div>
       </div>

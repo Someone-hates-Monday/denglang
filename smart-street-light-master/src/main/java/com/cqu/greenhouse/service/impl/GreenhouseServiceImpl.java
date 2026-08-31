@@ -5,13 +5,17 @@ import com.cqu.config.MqttConfig;
 import com.cqu.greenhouse.entity.*;
 import com.cqu.greenhouse.mapper.*;
 import com.cqu.greenhouse.service.IGreenhouseService;
+import com.cqu.greenhouse.sim.AutoLightRegulator;
 import com.cqu.greenhouse.sim.ClimateProfiles;
 import com.cqu.greenhouse.sim.DynamicLightTarget;
 import com.cqu.greenhouse.sim.GreenhouseGeometry;
 import com.cqu.greenhouse.sim.LightEconomics;
 import com.cqu.greenhouse.sim.LightFieldModel;
 import com.cqu.greenhouse.sim.SpectrumShares;
+import com.cqu.security.ForbiddenException;
+import com.cqu.security.RoleCodes;
 import com.cqu.vo.WebSocketMessage;
+import com.cqu.utils.UserHolder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,6 +50,10 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     @Autowired
     private GhWorkOrderMapper workOrderMapper;
     @Autowired
+    private GhAlarmMapper alarmMapper;
+    @Autowired
+    private GhReportMapper reportMapper;
+    @Autowired
     private SimpMessagingTemplate messagingTemplate;
     @Lazy
     @Autowired
@@ -56,8 +65,27 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     @org.springframework.beans.factory.annotation.Value("${greenhouse.sim.interval-ms:1000}")
     private int intervalMs;
 
-    /** zoneId → 上次自动动作（仿真分钟，浮点） */
-    private final Map<String, Double> lastActionSimMinute = new ConcurrentHashMap<>();
+    /** 进程内仿真是否外发 PAR 遥测（默认关，避免 MQTT 回环写爆） */
+    @org.springframework.beans.factory.annotation.Value("${greenhouse.sim.publish-mqtt-telemetry:false}")
+    private boolean publishMqttTelemetry;
+
+    /** 指令无 status 回执超时（秒）→ TIMEOUT + COMMAND_TIMEOUT 告警 */
+    @org.springframework.beans.factory.annotation.Value("${greenhouse.control.command-timeout-sec:30}")
+    private int commandTimeoutSec;
+
+    /** zoneId → 上次 AUTO 补光动作（仿真分钟） */
+    private final Map<String, Double> lastLampActionSimMinute = new ConcurrentHashMap<>();
+    /** zoneId → 上次 AUTO 遮阳动作（仿真分钟） */
+    private final Map<String, Double> lastShadeActionSimMinute = new ConcurrentHashMap<>();
+    /**
+     * zoneId → 目标带缩放 EMA，抑制 VPD/DLI 追赶造成的紫色带锯齿。
+     */
+    private final Map<String, Double> targetScaleEma = new ConcurrentHashMap<>();
+    /**
+     * zoneId → 温湿平滑状态 [humidity, tempC, shadeLag]。
+     * 遮阳阶跃不直接打进湿度，经滞后后再低通，避免 VPD→目标带锯齿。
+     */
+    private final Map<String, double[]> climateSmooth = new ConcurrentHashMap<>();
     /** 仿真时刻（浮点分钟）：连续推进，避免整数大步跳动 */
     private volatile double simMinuteOfDay = 0;
     /** zoneId → 当日曲线采样（内存，跨日清空） */
@@ -85,8 +113,9 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor, minute);
         LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, minute, 100, false);
 
-        double humidity = synthHumidity(minute, zone.getShadeOpenPercent());
-        double tempC = synthTemp(minute, outdoor);
+        double[] climate = climateSnapshot(zoneId, minute, zone.getShadeOpenPercent(), outdoor);
+        double humidity = climate[0];
+        double tempC = climate[1];
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("zoneId", zoneId);
@@ -162,8 +191,12 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         DynamicLightTarget.Result dyn = null;
         if (recipe != null) {
             dyn = DynamicLightTarget.compute(recipe, minute, tempC, humidity, dliVal);
-            out.put("dynamicTarget", dyn.toMap());
-            out.put("vpdKpa", dyn.toMap().get("vpdKpa"));
+            Map<String, Object> dynMap = dyn.toMap();
+            double[] band = peekTargetBand(zoneId, dyn);
+            dynMap.put("instantMin", round(band[0]));
+            dynMap.put("instantMax", round(band[1]));
+            out.put("dynamicTarget", dynMap);
+            out.put("vpdKpa", dynMap.get("vpdKpa"));
         }
         int avgDimApi = (int) devices.stream()
                 .filter(d -> "GROW_LAMP".equals(d.getDeviceType()))
@@ -267,21 +300,10 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         if (!"PENDING".equals(wo.getStatus())) {
             throw new IllegalStateException("工单状态不可审批: " + wo.getStatus());
         }
+        // R1: 批准 ≠ 下发；种植员 claim 后才执行
         wo.setStatus("APPROVED");
         wo.setDecidedAt(LocalDateTime.now());
         workOrderMapper.updateById(wo);
-        if (wo.getTargetDeviceSn() != null && wo.getSuggestedDimmingPct() != null) {
-            setDimming(wo.getTargetDeviceSn(), wo.getSuggestedDimmingPct(), "WORK_ORDER");
-        }
-        if (wo.getSuggestedShadePct() != null) {
-            GhDevice shade = deviceMapper.selectOne(new LambdaQueryWrapper<GhDevice>()
-                    .eq(GhDevice::getZoneId, wo.getZoneId())
-                    .eq(GhDevice::getDeviceType, "SHADE_ACTUATOR")
-                    .last("LIMIT 1"));
-            if (shade != null) {
-                setShadeOpen(shade.getDeviceSn(), wo.getSuggestedShadePct(), "WORK_ORDER");
-            }
-        }
     }
 
     @Override
@@ -298,10 +320,48 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
 
     @Override
     @Transactional
+    public void claimWorkOrder(Long id) {
+        GhWorkOrder wo = workOrderMapper.selectById(id);
+        if (wo == null) {
+            throw new IllegalArgumentException("工单不存在");
+        }
+        if (!"APPROVED".equals(wo.getStatus())) {
+            throw new IllegalStateException("仅已批准工单可接单执行: " + wo.getStatus());
+        }
+        wo.setStatus("IN_PROGRESS");
+        workOrderMapper.updateById(wo);
+
+        if (wo.getTargetDeviceSn() != null && wo.getSuggestedDimmingPct() != null) {
+            setDimming(wo.getTargetDeviceSn(), wo.getSuggestedDimmingPct(), "WORK_ORDER");
+        }
+        if (wo.getSuggestedShadePct() != null) {
+            GhDevice shade = deviceMapper.selectOne(new LambdaQueryWrapper<GhDevice>()
+                    .eq(GhDevice::getZoneId, wo.getZoneId())
+                    .eq(GhDevice::getDeviceType, "SHADE_ACTUATOR")
+                    .last("LIMIT 1"));
+            if (shade != null) {
+                setShadeOpen(shade.getDeviceSn(), wo.getSuggestedShadePct(), "WORK_ORDER");
+            }
+        }
+
+        wo.setStatus("COMPLETED");
+        wo.setCompletedAt(LocalDateTime.now());
+        workOrderMapper.updateById(wo);
+    }
+
+    @Override
+    @Transactional
     public void completeWorkOrder(Long id) {
         GhWorkOrder wo = workOrderMapper.selectById(id);
         if (wo == null) {
             throw new IllegalArgumentException("工单不存在");
+        }
+        if (!"IN_PROGRESS".equals(wo.getStatus()) && !"APPROVED".equals(wo.getStatus())) {
+            throw new IllegalStateException("工单状态不可完成: " + wo.getStatus());
+        }
+        // 仅收尾；若仍为 APPROVED 且未 claim，不偷偷下发（应走 claim）
+        if ("APPROVED".equals(wo.getStatus())) {
+            throw new IllegalStateException("请先接单执行后再完成，或使用接单执行一键完成");
         }
         wo.setStatus("COMPLETED");
         wo.setCompletedAt(LocalDateTime.now());
@@ -327,8 +387,9 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         cmd.put("command", "SET_DIMMING");
         cmd.put("dimmingPercent", p);
         cmd.put("source", source);
-        mqttConfig.publishGreenhouseCommand(deviceSn, cmd);
-        recordControl(deviceSn, device.getZoneId(), "SET_DIMMING", source, cmd, "SUCCESS");
+        boolean published = mqttConfig.publishGreenhouseCommand(deviceSn, cmd);
+        // 已写库；MQTT 已发则 PENDING 等 status，未连 broker 则本地 SUCCESS
+        recordControl(deviceSn, device.getZoneId(), "SET_DIMMING", source, cmd, published ? "PENDING" : "SUCCESS");
         pushWs();
     }
 
@@ -358,8 +419,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         cmd.put("command", "SET_OPEN_PERCENT");
         cmd.put("shadeOpenPercent", p);
         cmd.put("source", source);
-        mqttConfig.publishGreenhouseCommand(deviceSn, cmd);
-        recordControl(deviceSn, device.getZoneId(), "SET_OPEN_PERCENT", source, cmd, "SUCCESS");
+        boolean published = mqttConfig.publishGreenhouseCommand(deviceSn, cmd);
+        recordControl(deviceSn, device.getZoneId(), "SET_OPEN_PERCENT", source, cmd, published ? "PENDING" : "SUCCESS");
         pushWs();
     }
 
@@ -368,6 +429,10 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     public void ingestTelemetry(Map<String, Object> payload) {
         String sn = str(payload.get("deviceSn"));
         if (sn == null) {
+            return;
+        }
+        // 仿真自发布遥测：避免 tick→MQTT→ingest 回灌写爆 gh_telemetry
+        if ("SIM".equalsIgnoreCase(str(payload.get("source")))) {
             return;
         }
         GhDevice device = deviceMapper.selectOne(new LambdaQueryWrapper<GhDevice>().eq(GhDevice::getDeviceSn, sn));
@@ -428,12 +493,15 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         }
         device.setLastSeenAt(LocalDateTime.now());
         deviceMapper.updateById(device);
+        ackPendingControl(sn, device);
         pushWs();
     }
 
     @Override
     @Transactional
     public void tickSimulation() {
+        expireTimedOutCommands();
+        resolveSimPendingAcks();
         double step = minutesPerTick();
         double prev = simMinuteOfDay;
         simMinuteOfDay = (simMinuteOfDay + step) % 1440.0;
@@ -445,15 +513,36 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         for (GhZone zone : listZones()) {
             if (newDay) {
                 daySeries.put(zone.getZoneId(), new ArrayList<>());
-                lastActionSimMinute.remove(zone.getZoneId());
+                lastLampActionSimMinute.remove(zone.getZoneId());
+                lastShadeActionSimMinute.remove(zone.getZoneId());
+                climateSmooth.remove(zone.getZoneId());
+                targetScaleEma.remove(zone.getZoneId());
             }
             List<GhDevice> devices = devicesOf(zone.getZoneId());
             double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), simMinuteOfDay);
             LightFieldModel.FieldResult field = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay);
             LightFieldModel.FieldResult natural = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay, 100, false);
 
-            double humidity = synthHumidity(simMinuteOfDay, zone.getShadeOpenPercent());
-            double tempC = synthTemp(simMinuteOfDay, outdoor);
+            double[] climate = advanceClimate(zone.getZoneId(), simMinuteOfDay, zone.getShadeOpenPercent(), outdoor);
+            double humidity = climate[0];
+            double tempC = climate[1];
+
+            GhRecipe recipeForBand = getRecipe(zone.getRecipeId());
+            if (recipeForBand != null) {
+                double dliForBand = zone.getLastDli() != null ? zone.getLastDli().doubleValue() : 0;
+                DynamicLightTarget.Result dynBand = DynamicLightTarget.compute(
+                        recipeForBand, simMinuteOfDay, tempC, humidity, dliForBand);
+                advanceTargetBand(zone.getZoneId(), dynBand);
+            }
+
+            // 先控后采：AUTO 写入执行器后再算光场，曲线才是「调控后」
+            if (Boolean.TRUE.equals(zone.getAutoControl())) {
+                applyRules(zone, devices, field, tempC, humidity);
+                zone = requireZone(zone.getZoneId());
+                devices = devicesOf(zone.getZoneId());
+                field = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay);
+                natural = LightFieldModel.compute(zone, devices, outdoor, simMinuteOfDay, 100, false);
+            }
 
             for (GhDevice sensor : devices) {
                 if (!"PAR_SENSOR".equals(sensor.getDeviceType())) {
@@ -486,6 +575,12 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             zone.setLastEffectivePpfd(zoneUpdate.getLastEffectivePpfd());
             zone.setLastDli(dli);
 
+            // M6：欠/过光告警（按配方硬限）；同类型 ACTIVE 去重
+            evaluateLightAlarms(zone, field, recipeForBand);
+
+            // 仿真遥测回灌 MQTT，便于真机/模拟器路径联调
+            publishSimTelemetry(devices, field, tempC, humidity);
+
             int avgDim = (int) devices.stream()
                     .filter(d -> "GROW_LAMP".equals(d.getDeviceType()))
                     .mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0)
@@ -506,10 +601,11 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             if (recipeSample != null) {
                 DynamicLightTarget.Result dyn = DynamicLightTarget.compute(
                         recipeSample, simMinuteOfDay, tempC, humidity, dli.doubleValue());
-                sample.put("targetPpfdMin", round(dyn.instantMin()));
-                sample.put("targetPpfdMax", round(dyn.instantMax()));
-                sample.put("targetMid", round((dyn.instantMin() + dyn.instantMax()) / 2.0));
-                sample.put("gapPpfd", round(field.effectivePpfd() - (dyn.instantMin() + dyn.instantMax()) / 2.0));
+                double[] band = peekTargetBand(zone.getZoneId(), dyn);
+                sample.put("targetPpfdMin", round(band[0]));
+                sample.put("targetPpfdMax", round(band[1]));
+                sample.put("targetMid", round((band[0] + band[1]) / 2.0));
+                sample.put("gapPpfd", round(field.effectivePpfd() - (band[0] + band[1]) / 2.0));
                 sample.put("vpdKpa", round(dyn.vpdKpa() * 1000.0) / 1000.0);
                 sample.put("dliSoFar", round(dli.doubleValue() * 1000.0) / 1000.0);
             }
@@ -528,10 +624,6 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             if (series.size() > SERIES_CAP) {
                 series.subList(0, series.size() - SERIES_CAP).clear();
             }
-
-            if (Boolean.TRUE.equals(zone.getAutoControl())) {
-                applyRules(zone, devices, field, tempC, humidity);
-            }
         }
         pushWs();
     }
@@ -541,13 +633,18 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         // 从上午 9:00 起跑，避免长时间「夜里只见灯峰」
         simMinuteOfDay = 540;
         daySeries.clear();
-        lastActionSimMinute.clear();
+        lastLampActionSimMinute.clear();
+        lastShadeActionSimMinute.clear();
+        climateSmooth.clear();
+        targetScaleEma.clear();
         for (GhZone zone : listZones()) {
             GhZone patch = new GhZone();
             patch.setLastDli(BigDecimal.ZERO);
-            // 演示重置：遮阳全开 + 自动控光开，便于追动态目标带
+            // 演示重置：遮阳全开 + 自动控光开 + 东西同气候，消除固定东西差
             patch.setShadeOpenPercent(100);
             patch.setAutoControl(true);
+            patch.setClimateProfileId("cq-winter-clear");
+            patch.setRecipeId("dendrobium-officinale-cultivation-v1");
             zoneMapper.update(patch, new LambdaQueryWrapper<GhZone>().eq(GhZone::getZoneId, zone.getZoneId()));
 
             List<GhDevice> devices = devicesOf(zone.getZoneId());
@@ -586,10 +683,243 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     }
 
     @Override
-    public List<GhControlLog> recentControlLogs(int limit) {
-        return controlLogMapper.selectList(new LambdaQueryWrapper<GhControlLog>()
+    public List<GhControlLog> recentControlLogs(int limit, String source) {
+        LambdaQueryWrapper<GhControlLog> q = new LambdaQueryWrapper<GhControlLog>()
                 .orderByDesc(GhControlLog::getCreatedAt)
-                .last("LIMIT " + Math.max(1, Math.min(limit, 200))));
+                .last("LIMIT " + Math.max(1, Math.min(limit, 200)));
+        if (source != null && !source.isBlank()) {
+            q.eq(GhControlLog::getSource, source);
+        }
+        return controlLogMapper.selectList(q);
+    }
+
+    @Override
+    public List<GhAlarm> listAlarms(String status, int limit) {
+        LambdaQueryWrapper<GhAlarm> q = new LambdaQueryWrapper<GhAlarm>()
+                .orderByDesc(GhAlarm::getCreatedAt)
+                .last("LIMIT " + Math.max(1, Math.min(limit, 200)));
+        if (status != null && !status.isBlank()) {
+            q.eq(GhAlarm::getStatus, status);
+        }
+        return alarmMapper.selectList(q);
+    }
+
+    @Override
+    @Transactional
+    public void resolveAlarm(Long id) {
+        GhAlarm a = alarmMapper.selectById(id);
+        if (a == null) {
+            throw new IllegalArgumentException("告警不存在");
+        }
+        a.setStatus("RESOLVED");
+        a.setResolvedAt(LocalDateTime.now());
+        alarmMapper.updateById(a);
+        pushAlarmWs(a);
+    }
+
+    @Override
+    @Transactional
+    public void ingestAlarm(Map<String, Object> payload) {
+        String sn = str(payload.get("deviceSn"));
+        String type = str(payload.get("alarmType"));
+        String message = str(payload.get("message"));
+        if (type == null || type.isBlank()) {
+            return;
+        }
+        String zoneId = null;
+        if (sn != null) {
+            GhDevice d = deviceMapper.selectOne(new LambdaQueryWrapper<GhDevice>().eq(GhDevice::getDeviceSn, sn));
+            if (d != null) {
+                zoneId = d.getZoneId();
+                if ("DEVICE_OFFLINE".equalsIgnoreCase(type) || "OFFLINE".equalsIgnoreCase(type)) {
+                    d.setOnlineStatus("OFFLINE");
+                    deviceMapper.updateById(d);
+                }
+            }
+        }
+        if (message == null || message.isBlank()) {
+            message = type;
+        }
+        raiseAlarm(zoneId, sn, type.toUpperCase(), message);
+    }
+
+    @Override
+    public List<GhReport> listReports(String type, String status, int limit) {
+        LambdaQueryWrapper<GhReport> q = new LambdaQueryWrapper<GhReport>()
+                .orderByDesc(GhReport::getReportDate)
+                .orderByDesc(GhReport::getId)
+                .last("LIMIT " + Math.max(1, Math.min(limit, 100)));
+        if (type != null && !type.isBlank()) {
+            q.eq(GhReport::getReportType, type);
+        }
+        if (status != null && !status.isBlank()) {
+            q.eq(GhReport::getStatus, status);
+        }
+        return reportMapper.selectList(q);
+    }
+
+    @Override
+    public GhReport getReport(Long id) {
+        return reportMapper.selectById(id);
+    }
+
+    @Override
+    @Transactional
+    public GhReport draftDailyLight(String zoneId) {
+        if (RoleCodes.TRAINEE.equals(RoleCodes.normalize(UserHolder.getRole()))) {
+            throw new ForbiddenException("学员请使用实训报告草稿，不可生成日光合运营草稿");
+        }
+        return upsertLightDraft(zoneId, "DAILY_LIGHT", "日光合摘要");
+    }
+
+    @Override
+    @Transactional
+    public GhReport draftTraining(String zoneId) {
+        return upsertLightDraft(zoneId, "TRAINING", "实训观察报告");
+    }
+
+    private GhReport upsertLightDraft(String zoneId, String reportType, String titlePrefix) {
+        String zid = (zoneId == null || zoneId.isBlank()) ? "ZONE-A" : zoneId;
+        GhZone zone = requireZone(zid);
+        LocalDate today = LocalDate.now();
+        GhReport existing = reportMapper.selectOne(new LambdaQueryWrapper<GhReport>()
+                .eq(GhReport::getReportType, reportType)
+                .eq(GhReport::getReportDate, today)
+                .eq(GhReport::getZoneId, zid)
+                .eq(GhReport::getStatus, "DRAFT")
+                .eq(GhReport::getAuthorId, UserHolder.getCurrent())
+                .last("LIMIT 1"));
+
+        List<GhWorkOrder> wos = workOrderMapper.selectList(new LambdaQueryWrapper<GhWorkOrder>()
+                .eq(GhWorkOrder::getZoneId, zid)
+                .ge(GhWorkOrder::getCreatedAt, today.atStartOfDay())
+                .orderByDesc(GhWorkOrder::getId)
+                .last("LIMIT 20"));
+        long pending = wos.stream().filter(w -> "PENDING".equals(w.getStatus())).count();
+        long completed = wos.stream().filter(w -> "COMPLETED".equals(w.getStatus())).count();
+
+        double dli = zone.getLastDli() != null ? zone.getLastDli().doubleValue() : 0;
+        double ppfd = zone.getLastEffectivePpfd() != null ? zone.getLastEffectivePpfd().doubleValue() : 0;
+        GhRecipe recipe = getRecipe(zone.getRecipeId());
+        Double dliMin = recipe != null && recipe.getDliTargetMin() != null
+                ? recipe.getDliTargetMin().doubleValue() : null;
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("zoneId", zid);
+        body.put("zoneName", zone.getName());
+        body.put("recipeId", zone.getRecipeId());
+        body.put("climateProfileId", zone.getClimateProfileId());
+        body.put("autoControl", zone.getAutoControl());
+        body.put("shadeOpenPercent", zone.getShadeOpenPercent());
+        body.put("effectivePpfd", round(ppfd));
+        body.put("dliSoFar", round(dli * 1000.0) / 1000.0);
+        body.put("dliTargetMin", dliMin);
+        body.put("workOrderPending", pending);
+        body.put("workOrderCompleted", completed);
+        body.put("workOrders", wos.stream().map(w -> Map.of(
+                "id", w.getId(),
+                "status", w.getStatus() != null ? w.getStatus() : "",
+                "reason", w.getReason() != null ? w.getReason() : ""
+        )).toList());
+
+        // 简易产量/能耗估：沿用 economics 思路的轻量摘要
+        try {
+            Map<String, Object> el = getZoneEffectiveLight(zid);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> econ = el.get("economics") instanceof Map
+                    ? (Map<String, Object>) el.get("economics") : null;
+            if (econ != null) {
+                body.put("economics", econ);
+            }
+        } catch (Exception ignored) {
+            // 草稿仍可保存核心光指标
+        }
+
+        if ("TRAINING".equals(reportType)) {
+            body.put("observerNote", "请结合热力与日曲线描述光态观察结论，勿改动生产执行器。");
+        }
+
+        String summary = String.format(
+                "%s · 有效光 %.0f · DLI %.2f%s · 工单待审 %d / 完成 %d",
+                zone.getName() != null ? zone.getName() : zid,
+                ppfd,
+                dli,
+                dliMin != null ? ("/" + dliMin) : "",
+                pending,
+                completed);
+        if ("TRAINING".equals(reportType)) {
+            summary = "实训 · " + summary;
+        }
+
+        String woIds = wos.stream().map(w -> String.valueOf(w.getId())).reduce((a, b) -> a + "," + b).orElse("");
+        String bodyJson;
+        try {
+            bodyJson = OM.writeValueAsString(body);
+        } catch (Exception e) {
+            bodyJson = "{}";
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String title = titlePrefix + " · " + zid + " · " + today;
+        if (existing != null) {
+            existing.setTitle(title)
+                    .setSummaryZh(summary)
+                    .setBodyJson(bodyJson)
+                    .setWorkOrderIds(woIds)
+                    .setAuthorId(UserHolder.getCurrent())
+                    .setAuthorRole(UserHolder.getRole())
+                    .setUpdatedAt(now);
+            reportMapper.updateById(existing);
+            return existing;
+        }
+        GhReport row = new GhReport()
+                .setReportType(reportType)
+                .setTitle(title)
+                .setStatus("DRAFT")
+                .setAuthorId(UserHolder.getCurrent())
+                .setAuthorRole(UserHolder.getRole())
+                .setZoneId(zid)
+                .setReportDate(today)
+                .setSummaryZh(summary)
+                .setBodyJson(bodyJson)
+                .setWorkOrderIds(woIds)
+                .setCreatedAt(now)
+                .setUpdatedAt(now);
+        reportMapper.insert(row);
+        return row;
+    }
+
+    @Override
+    @Transactional
+    public void submitReport(Long id) {
+        GhReport r = reportMapper.selectById(id);
+        if (r == null) {
+            throw new IllegalArgumentException("报告不存在");
+        }
+        if (!"DRAFT".equals(r.getStatus())) {
+            throw new IllegalStateException("仅草稿可提交");
+        }
+        r.setStatus("SUBMITTED");
+        r.setUpdatedAt(LocalDateTime.now());
+        reportMapper.updateById(r);
+    }
+
+    @Override
+    @Transactional
+    public void reviewReport(Long id, String note, boolean approve) {
+        GhReport r = reportMapper.selectById(id);
+        if (r == null) {
+            throw new IllegalArgumentException("报告不存在");
+        }
+        if (!"SUBMITTED".equals(r.getStatus()) && !"DRAFT".equals(r.getStatus())) {
+            throw new IllegalStateException("当前状态不可批阅: " + r.getStatus());
+        }
+        r.setStatus(approve ? "REVIEWED" : "DRAFT");
+        r.setReviewerId(UserHolder.getCurrent());
+        r.setReviewNote(note);
+        r.setReviewedAt(LocalDateTime.now());
+        r.setUpdatedAt(LocalDateTime.now());
+        reportMapper.updateById(r);
     }
 
     @Override
@@ -611,183 +941,78 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         if (recipe == null) {
             return;
         }
-        int cooldownMin = 10;
-        Double last = lastActionSimMinute.get(zone.getZoneId());
-        if (last != null) {
-            double delta = simMinuteOfDay - last;
-            if (delta < 0) {
-                delta += 1440.0;
-            }
-            if (delta > 0 && delta < cooldownMin) {
-                return;
-            }
-        }
 
-        double effectivePpfd = field.effectivePpfd();
         double dliVal = zone.getLastDli() != null ? zone.getLastDli().doubleValue() : 0;
         DynamicLightTarget.Result dyn = DynamicLightTarget.compute(
                 recipe, simMinuteOfDay, tempC, humidity, dliVal);
-        double hardMin = dyn.hardMin();
-        double hardMax = dyn.hardMax();
-        double tMin = dyn.instantMin();
-        double tMax = dyn.instantMax();
-        double mid = (tMin + tMax) / 2.0;
-        int dimStep = recipe.getDimmingStepPct() != null ? recipe.getDimmingStepPct() : 5;
-
-        List<GhDevice> lamps = devices.stream().filter(d -> "GROW_LAMP".equals(d.getDeviceType())).toList();
-        GhDevice shade = devices.stream().filter(d -> "SHADE_ACTUATOR".equals(d.getDeviceType())).findFirst().orElse(null);
-        int currentShade = zone.getShadeOpenPercent() != null ? zone.getShadeOpenPercent() : 100;
-        int avgDim = (int) lamps.stream().mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0).average().orElse(0);
-
-        Runnable mark = () -> lastActionSimMinute.put(zone.getZoneId(), simMinuteOfDay);
-
-        if (dyn.photoperiodMask() < 0.05) {
-            if (!lamps.isEmpty() && avgDim > 0 && Boolean.TRUE.equals(recipe.getAutoSupplement())) {
-                int next = Math.max(0, avgDim - Math.max(dimStep, 15));
-                applyDimToAll(lamps, next, "AUTO", zone.getZoneId(), "光周期外降灯→" + next + "%");
-                mark.run();
-            }
-            return;
-        }
-
+        // 用平滑后的瞬时目标带做控制，避免锯齿目标驱使执行器横跳
+        double[] band = peekTargetBand(zone.getZoneId(), dyn);
+        DynamicLightTarget.Result dynSmooth = new DynamicLightTarget.Result(
+                dyn.recipeMin(), dyn.recipeMax(), dyn.recipeHardMin(), dyn.recipeHardMax(),
+                band[0], band[1],
+                dyn.hardMin(), dyn.hardMax(),
+                dyn.photoperiodMask(), dyn.vpdKpa(), dyn.vpdFactor(), dyn.dliCatchUp(),
+                dyn.dliSoFar(), dyn.dliTargetMin(), dyn.dliTargetMax(), dyn.dliExpectedByNow(),
+                dyn.photoperiodHours(), dyn.noteZh());
         double outdoor = ClimateProfiles.outdoorParAt(zone.getClimateProfileId(), simMinuteOfDay);
-        double naturalOpen = LightFieldModel.naturalScaleForShadeOpen(zone, outdoor, simMinuteOfDay, 100);
-        int shadeClosedStep = LightEconomics.stepShadeClosed(currentShade);
-        double naturalIfClosed = LightFieldModel.naturalScaleForShadeOpen(
-                zone, outdoor, simMinuteOfDay, shadeClosedStep);
 
-        // 区级过硬限：先分床降灯，再考虑遮阳
-        if (effectivePpfd > hardMax || (effectivePpfd > tMax + 4 && tMax > 1)) {
-            if (avgDim > 0 && !lamps.isEmpty() && Boolean.TRUE.equals(recipe.getAutoSupplement())) {
-                boolean acted = adjustLampsPerBed(lamps, field, mid, tMin, tMax, dimStep, true,
-                        zone.getZoneId());
-                if (acted) {
-                    mark.run();
-                    return;
+        String zoneId = zone.getZoneId();
+        AutoLightRegulator.Plan plan = AutoLightRegulator.plan(
+                zone,
+                devices,
+                field,
+                dynSmooth,
+                recipe,
+                outdoor,
+                simMinuteOfDay,
+                lastLampActionSimMinute.get(zoneId),
+                lastShadeActionSimMinute.get(zoneId));
+
+        GhDevice shade = devices.stream()
+                .filter(d -> "SHADE_ACTUATOR".equals(d.getDeviceType()))
+                .findFirst()
+                .orElse(null);
+
+        int dimThr = recipe.getApproveDimAbove() != null ? recipe.getApproveDimAbove() : 80;
+        int shadeThr = recipe.getApproveShadeAbove() != null ? recipe.getApproveShadeAbove() : 80;
+
+        if (plan.hasShadeChange() && shade != null) {
+            int next = plan.shadeOpenNext();
+            int cur = zone.getShadeOpenPercent() != null ? zone.getShadeOpenPercent() : 100;
+            if (next != cur) {
+                int closedPct = 100 - next;
+                // P0.2：关遮阳且闭光比例 ≥ 审批阈值 → 工单，不直发
+                setShadeOpen(shade.getDeviceSn(), next, "AUTO");
+                lastShadeActionSimMinute.put(zoneId, simMinuteOfDay);
+                if (next < cur && closedPct >= shadeThr) {
+                    createWorkOrder(zoneId, shade.getDeviceSn(),
+                            "AUTO 已关遮阳至开度 " + next + "%（闭光≥" + shadeThr + "%，待复核）",
+                            null, next);
                 }
             }
-            if (Boolean.TRUE.equals(recipe.getAutoShade()) && shade != null && currentShade > 10) {
-                boolean ok = LightEconomics.shouldCloseShade(
-                        effectivePpfd, naturalOpen, naturalIfClosed, mid, hardMax, avgDim);
-                if (ok && shadeClosedStep < currentShade) {
-                    setShadeOpen(shade.getDeviceSn(), shadeClosedStep, "AUTO");
-                    mark.run();
-                }
-            }
-            return;
         }
 
-        // 欠光：先开遮阳，再分床补光
-        if (effectivePpfd < hardMin || (effectivePpfd < tMin - 2 && tMin > 1)) {
-            if (Boolean.TRUE.equals(recipe.getAutoShade()) && shade != null && currentShade < 100) {
-                int opened = LightEconomics.stepShadeOpened(currentShade);
-                if (opened > currentShade) {
-                    setShadeOpen(shade.getDeviceSn(), opened, "AUTO");
-                    mark.run();
-                    return;
+        if (plan.hasLampChanges()) {
+            AutoLightRegulator.LampAdjust needsWo = null;
+            for (AutoLightRegulator.LampAdjust adj : plan.lamps()) {
+                setDimming(adj.deviceSn(), adj.toPct(), "AUTO");
+                if (adj.toPct() >= dimThr && (needsWo == null || adj.toPct() > needsWo.toPct())) {
+                    needsWo = adj;
                 }
             }
-            if (Boolean.TRUE.equals(recipe.getAutoSupplement()) && !lamps.isEmpty()) {
-                boolean acted = adjustLampsPerBed(lamps, field, mid, tMin, tMax, dimStep, false,
-                        zone.getZoneId());
-                if (acted) {
-                    mark.run();
-                }
+            if (needsWo != null) {
+                createWorkOrder(zoneId, needsWo.deviceSn(),
+                        "AUTO 已执行调光至 " + needsWo.toPct() + "%（≥" + dimThr + "%，待复核）",
+                        needsWo.toPct(), null);
             }
-            return;
-        }
-
-        // 目标带内：分床微调；遮阳仅在灯已低时谨慎关
-        if (Boolean.TRUE.equals(recipe.getAutoSupplement()) && !lamps.isEmpty()) {
-            boolean acted = adjustLampsPerBed(lamps, field, mid, tMin, tMax, dimStep, false,
-                    zone.getZoneId());
-            if (acted) {
-                mark.run();
-                return;
-            }
-        }
-        if (effectivePpfd > tMax && avgDim <= 8 && Boolean.TRUE.equals(recipe.getAutoShade())
-                && shade != null) {
-            boolean ok = LightEconomics.shouldCloseShade(
-                    effectivePpfd, naturalOpen, naturalIfClosed, mid, hardMax, avgDim);
-            if (ok && shadeClosedStep < currentShade) {
-                setShadeOpen(shade.getDeviceSn(), shadeClosedStep, "AUTO");
-                mark.run();
-            }
+            lastLampActionSimMinute.put(zoneId, simMinuteOfDay);
         }
     }
 
-    /**
-     * 按床调节：只改该床所属灯，使床面 AVG 靠近目标中值。
-     *
-     * @param forceDim true=过光强制降
-     */
-    private boolean adjustLampsPerBed(List<GhDevice> lamps, LightFieldModel.FieldResult field,
-                                      double mid, double tMin, double tMax, int dimStep,
-                                      boolean forceDim, String zoneId) {
-        Map<String, LightFieldModel.BedLightStat> beds = field.bedStats();
-        if (beds == null || beds.isEmpty()) {
-            return false;
-        }
-        boolean any = false;
-        for (Map.Entry<String, LightFieldModel.BedLightStat> e : beds.entrySet()) {
-            String bedId = e.getKey();
-            LightFieldModel.BedLightStat st = e.getValue();
-            List<GhDevice> bedLamps = lamps.stream()
-                    .filter(l -> bedId.equals(GreenhouseGeometry.lampBedId(l.getDeviceSn())))
-                    .toList();
-            if (bedLamps.isEmpty()) {
-                continue;
-            }
-            int cur = (int) bedLamps.stream()
-                    .mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0)
-                    .average().orElse(0);
-            double bedPpfd = st.avgPpfd();
-            int next = cur;
-            if (forceDim || bedPpfd > tMax + 2) {
-                int drop = Math.max(dimStep, (int) Math.min(25,
-                        Math.ceil((bedPpfd - mid) / Math.max(mid, 20) * 35)));
-                next = Math.max(0, cur - drop);
-            } else if (bedPpfd < tMin - 1) {
-                int boost = Math.max(dimStep, (int) Math.min(22,
-                        Math.ceil((mid - bedPpfd) / Math.max(mid, 20) * 40)));
-                next = Math.min(100, cur + boost);
-            } else if (bedPpfd < tMin) {
-                next = Math.min(100, cur + dimStep);
-            } else if (bedPpfd > tMax) {
-                next = Math.max(0, cur - dimStep);
-            }
-            if (next != cur) {
-                applyDimToAll(bedLamps, next, "AUTO", zoneId,
-                        "分床 " + bedId + " 调光→" + next + "% (床均=" + round(bedPpfd)
-                                + ", 目标≈" + round(mid) + ")");
-                any = true;
-            }
-        }
-        // L1 叠层灯：弱跟随，避免长期满功率
-        List<GhDevice> l1 = lamps.stream()
-                .filter(l -> l.getDeviceSn() != null && l.getDeviceSn().contains("L1"))
-                .toList();
-        if (!l1.isEmpty()) {
-            int cur = (int) l1.stream().mapToInt(l -> l.getDimmingPercent() != null ? l.getDimmingPercent() : 0)
-                    .average().orElse(0);
-            int next = cur;
-            if (forceDim && cur > 0) {
-                next = Math.max(0, cur - dimStep);
-            } else if (!forceDim && field.effectivePpfd() < tMin && cur < 40) {
-                next = Math.min(40, cur + dimStep);
-            }
-            if (next != cur) {
-                applyDimToAll(l1, next, "AUTO", zoneId, "上层灯微调→" + next + "%");
-                any = true;
-            }
-        }
-        return any;
-    }
-
+    /** @deprecated 规则已走 {@link AutoLightRegulator}；保留阈值语义供对照 */
     private void applyDimToAll(List<GhDevice> lamps, int next, String source,
-                               String zoneId, String reason) {
-        if (!"AUTO".equals(source) && next >= 80) {
+                               String zoneId, String reason, int approveDimAbove) {
+        if ("AUTO".equals(source) && next >= approveDimAbove) {
             GhDevice first = lamps.get(0);
             createWorkOrder(zoneId, first.getDeviceSn(), reason, next, null);
             return;
@@ -823,19 +1048,86 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         return m < 0 ? m + 1440.0 : m;
     }
 
-    /** 湿度：夜间高、正午低；遮阳闭合略抬升 */
-    private static double synthHumidity(double minute, Integer shadeOpen) {
+    /**
+     * 控制与曲线共用瞬时目标：直接用动态带，不再用慢速 EMA 把理想带拖成斜坡。
+     */
+    private double[] peekTargetBand(String zoneId, DynamicLightTarget.Result dyn) {
+        return new double[]{dyn.instantMin(), dyn.instantMax()};
+    }
+
+    /**
+     * 记录当前缩放，供诊断；不再限速，避免理想带与调控脱节。
+     */
+    private double[] advanceTargetBand(String zoneId, DynamicLightTarget.Result dyn) {
+        double rawScale = dyn.photoperiodMask() * dyn.vpdFactor() * dyn.dliCatchUp();
+        targetScaleEma.put(zoneId, rawScale);
+        return new double[]{dyn.instantMin(), dyn.instantMax()};
+    }
+
+    /**
+     * 只读快照：不推进滤波器（供 REST 轮询，避免每次拉光场就误加速温湿）。
+     */
+    private double[] climateSnapshot(String zoneId, double minute, Integer shadeOpen, double outdoorPar) {
+        double[] s = climateSmooth.get(zoneId);
+        if (s != null) {
+            return s;
+        }
+        double shade = shadeOpen != null ? shadeOpen : 100;
+        return new double[]{
+                synthHumidityIdeal(minute, shade),
+                synthTempIdeal(minute, outdoorPar),
+                shade
+        };
+    }
+
+    /**
+     * 仿真 tick：温湿低通 + 遮阳滞后。遮阳四档阶跃不直接写入湿度，避免 VPD→目标带锯齿牵动 AUTO。
+     *
+     * @return [humidityPct, tempC, shadeLag]
+     */
+    private double[] advanceClimate(String zoneId, double minute, Integer shadeOpen, double outdoorPar) {
+        double targetShade = shadeOpen != null ? shadeOpen : 100;
+        double step = minutesPerTick();
+        // 遮阳对微气候约 20 仿真分钟跟上；温湿约 6 仿真分钟时间常数
+        double shadeAlpha = Math.min(1.0, step / 20.0);
+        double climateAlpha = Math.min(1.0, step / 6.0);
+
+        double[] s = climateSmooth.get(zoneId);
+        if (s == null) {
+            double h0 = synthHumidityIdeal(minute, targetShade);
+            double t0 = synthTempIdeal(minute, outdoorPar);
+            s = new double[]{h0, t0, targetShade};
+            climateSmooth.put(zoneId, s);
+            return s;
+        }
+
+        s[2] += (targetShade - s[2]) * shadeAlpha;
+        double idealH = synthHumidityIdeal(minute, s[2]);
+        double idealT = synthTempIdeal(minute, outdoorPar);
+        s[0] += (idealH - s[0]) * climateAlpha;
+        s[1] += (idealT - s[1]) * climateAlpha;
+        s[0] = Math.max(40, Math.min(95, s[0]));
+        s[1] = Math.max(12, Math.min(38, s[1]));
+        return s;
+    }
+
+    /** 湿度理想曲线：夜间高、正午低；遮阳闭合缓慢抬升（由 shadeLag 驱动） */
+    private static double synthHumidityIdeal(double minute, double shadeOpenLag) {
         double day = Math.sin(Math.PI * ((minute - 360) / 720.0));
         day = Math.max(0, Math.min(1, day));
-        double open = shadeOpen != null ? shadeOpen : 100;
-        double base = 85 - day * 30 + (100 - open) * 0.08;
+        // 二次平滑日形，减少正午附近一阶尖点
+        double daySoft = day * day * (3 - 2 * day);
+        double base = 84 - daySoft * 28 + (100 - shadeOpenLag) * 0.06;
         return Math.max(40, Math.min(95, base));
     }
 
-    private static double synthTemp(double minute, double outdoorPar) {
+    private static double synthTempIdeal(double minute, double outdoorPar) {
         double day = Math.sin(Math.PI * ((minute - 360) / 720.0));
         day = Math.max(0, Math.min(1, day));
-        return 18 + day * 12 + Math.min(6, outdoorPar / 200.0);
+        double daySoft = day * day * (3 - 2 * day);
+        // 室外 PAR 用软饱和，避免气候样条拐点直接打进温度
+        double parBump = 5.5 * (1.0 - Math.exp(-Math.max(0, outdoorPar) / 280.0));
+        return 18 + daySoft * 11 + parBump;
     }
 
     private GhZone requireZone(String zoneId) {
@@ -872,6 +1164,192 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
             controlLogMapper.insert(logRow);
         } catch (Exception e) {
             log.warn("写控制日志失败", e);
+        }
+    }
+
+    private void evaluateLightAlarms(GhZone zone, LightFieldModel.FieldResult field, GhRecipe recipe) {
+        if (recipe == null || field == null) {
+            return;
+        }
+        double ppfd = field.effectivePpfd();
+        double hardMin = recipe.getPpfdHardMin() != null ? recipe.getPpfdHardMin().doubleValue() : 0;
+        double hardMax = recipe.getPpfdHardMax() != null ? recipe.getPpfdHardMax().doubleValue() : 9999;
+        // 光周期外不报欠光（夜）
+        if (simMinuteOfDay >= 360 && simMinuteOfDay <= 1080) {
+            if (ppfd < hardMin - 0.5) {
+                raiseAlarm(zone.getZoneId(), null, "UNDER_PPFD",
+                        zone.getZoneId() + " 有效光 " + round(ppfd) + " < 硬限 " + round(hardMin));
+            } else {
+                autoResolve(zone.getZoneId(), "UNDER_PPFD");
+            }
+            if (ppfd > hardMax + 0.5) {
+                raiseAlarm(zone.getZoneId(), null, "OVER_PPFD",
+                        zone.getZoneId() + " 有效光 " + round(ppfd) + " > 硬限 " + round(hardMax));
+            } else {
+                autoResolve(zone.getZoneId(), "OVER_PPFD");
+            }
+        }
+        for (GhDevice d : devicesOf(zone.getZoneId())) {
+            if ("OFFLINE".equalsIgnoreCase(d.getOnlineStatus())) {
+                raiseAlarm(zone.getZoneId(), d.getDeviceSn(), "DEVICE_OFFLINE",
+                        d.getDeviceSn() + " 离线");
+            }
+        }
+    }
+
+    private void raiseAlarm(String zoneId, String deviceSn, String type, String message) {
+        Long active = alarmMapper.selectCount(new LambdaQueryWrapper<GhAlarm>()
+                .eq(GhAlarm::getStatus, "ACTIVE")
+                .eq(GhAlarm::getAlarmType, type)
+                .eq(zoneId != null, GhAlarm::getZoneId, zoneId)
+                .eq(deviceSn != null, GhAlarm::getDeviceSn, deviceSn));
+        if (active != null && active > 0) {
+            return;
+        }
+        GhAlarm a = new GhAlarm()
+                .setZoneId(zoneId)
+                .setDeviceSn(deviceSn)
+                .setAlarmType(type)
+                .setMessage(message)
+                .setStatus("ACTIVE")
+                .setCreatedAt(LocalDateTime.now());
+        alarmMapper.insert(a);
+        pushAlarmWs(a);
+        log.info("光棚告警: type={} zone={} msg={}", type, zoneId, message);
+    }
+
+    private void autoResolve(String zoneId, String type) {
+        List<GhAlarm> list = alarmMapper.selectList(new LambdaQueryWrapper<GhAlarm>()
+                .eq(GhAlarm::getStatus, "ACTIVE")
+                .eq(GhAlarm::getAlarmType, type)
+                .eq(GhAlarm::getZoneId, zoneId));
+        for (GhAlarm a : list) {
+            a.setStatus("RESOLVED");
+            a.setResolvedAt(LocalDateTime.now());
+            alarmMapper.updateById(a);
+            pushAlarmWs(a);
+        }
+    }
+
+    private void ackPendingControl(String sn, GhDevice device) {
+        List<GhControlLog> pending = controlLogMapper.selectList(new LambdaQueryWrapper<GhControlLog>()
+                .eq(GhControlLog::getDeviceSn, sn)
+                .eq(GhControlLog::getExecutionStatus, "PENDING")
+                .orderByDesc(GhControlLog::getCreatedAt)
+                .last("LIMIT 5"));
+        for (GhControlLog row : pending) {
+            if (!statusMatchesCommand(row, device)) {
+                continue;
+            }
+            row.setExecutionStatus("SUCCESS");
+            controlLogMapper.updateById(row);
+        }
+    }
+
+    private boolean statusMatchesCommand(GhControlLog row, GhDevice device) {
+        if (row.getCommand() == null) {
+            return true;
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = row.getPayloadJson() == null ? Map.of()
+                    : OM.readValue(row.getPayloadJson(), Map.class);
+            if ("SET_DIMMING".equals(row.getCommand()) && payload.get("dimmingPercent") != null) {
+                int expect = Integer.parseInt(payload.get("dimmingPercent").toString());
+                int actual = device.getDimmingPercent() != null ? device.getDimmingPercent() : -999;
+                return Math.abs(expect - actual) <= 3;
+            }
+            if ("SET_OPEN_PERCENT".equals(row.getCommand()) && payload.get("shadeOpenPercent") != null) {
+                int expect = Integer.parseInt(payload.get("shadeOpenPercent").toString());
+                int actual = device.getShadeOpenPercent() != null ? device.getShadeOpenPercent() : -999;
+                return Math.abs(expect - actual) <= 5;
+            }
+        } catch (Exception ignored) {
+            return true;
+        }
+        return true;
+    }
+
+    /** sim.* 执行器：本地已落库，下一拍自动 SUCCESS（不等 MQTT 回执） */
+    private void resolveSimPendingAcks() {
+        List<GhControlLog> pending = controlLogMapper.selectList(new LambdaQueryWrapper<GhControlLog>()
+                .eq(GhControlLog::getExecutionStatus, "PENDING")
+                .last("LIMIT 100"));
+        for (GhControlLog row : pending) {
+            if (row.getDeviceSn() == null) {
+                continue;
+            }
+            GhDevice d = deviceMapper.selectOne(new LambdaQueryWrapper<GhDevice>()
+                    .eq(GhDevice::getDeviceSn, row.getDeviceSn()));
+            if (d == null || d.getAdapterId() == null || !d.getAdapterId().startsWith("sim.")) {
+                continue;
+            }
+            if (statusMatchesCommand(row, d)) {
+                row.setExecutionStatus("SUCCESS");
+                controlLogMapper.updateById(row);
+            }
+        }
+    }
+
+    private void expireTimedOutCommands() {
+        LocalDateTime cutoff = LocalDateTime.now().minusSeconds(Math.max(5, commandTimeoutSec));
+        List<GhControlLog> pending = controlLogMapper.selectList(new LambdaQueryWrapper<GhControlLog>()
+                .eq(GhControlLog::getExecutionStatus, "PENDING")
+                .lt(GhControlLog::getCreatedAt, cutoff)
+                .last("LIMIT 50"));
+        for (GhControlLog row : pending) {
+            row.setExecutionStatus("TIMEOUT");
+            controlLogMapper.updateById(row);
+            raiseAlarm(row.getZoneId(), row.getDeviceSn(), "COMMAND_TIMEOUT",
+                    (row.getDeviceSn() != null ? row.getDeviceSn() : "?") + " 指令超时: " + row.getCommand());
+        }
+    }
+
+    private void publishSimTelemetry(List<GhDevice> devices, LightFieldModel.FieldResult field,
+                                     double tempC, double humidity) {
+        if (!publishMqttTelemetry || mqttConfig == null || field == null) {
+            return;
+        }
+        for (GhDevice sensor : devices) {
+            if (!"PAR_SENSOR".equals(sensor.getDeviceType())) {
+                continue;
+            }
+            Double ppfd = field.sensorPpfd().get(sensor.getDeviceSn());
+            if (ppfd == null) {
+                continue;
+            }
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("deviceSn", sensor.getDeviceSn());
+            payload.put("zoneId", sensor.getZoneId());
+            payload.put("ppfd", round(ppfd));
+            payload.put("lux", round(ppfd * 54));
+            payload.put("temperatureC", round(tempC));
+            payload.put("humidityPct", round(humidity));
+            payload.put("source", "SIM");
+            mqttConfig.publishGreenhouseTelemetry(sensor.getDeviceSn(), payload);
+        }
+    }
+
+    private void pushAlarmWs(GhAlarm a) {
+        try {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("id", a.getId());
+            data.put("zoneId", a.getZoneId());
+            data.put("deviceSn", a.getDeviceSn());
+            data.put("deviceName", a.getDeviceSn() != null ? a.getDeviceSn() : a.getZoneId());
+            data.put("alarmType", a.getAlarmType());
+            data.put("message", a.getMessage());
+            data.put("status", a.getStatus());
+            data.put("createdAt", a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
+            WebSocketMessage msg = WebSocketMessage.builder()
+                    .type("GH_ALARM")
+                    .timestamp(LocalDateTime.now())
+                    .data(data)
+                    .build();
+            messagingTemplate.convertAndSend("/topic/greenhouse-alarms", msg);
+            messagingTemplate.convertAndSend("/topic/alarms", msg);
+        } catch (Exception e) {
+            log.debug("推送光棚告警 WS 失败: {}", e.getMessage());
         }
     }
 

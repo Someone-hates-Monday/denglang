@@ -71,9 +71,51 @@ export type GhWorkOrder = {
   zoneId: string
   status: string
   reason: string
+  targetDeviceSn?: string | null
   suggestedDimmingPct?: number
   suggestedShadePct?: number
   createdAt?: string
+}
+
+export type GhControlLog = {
+  id: number
+  deviceSn?: string | null
+  zoneId?: string | null
+  command: string
+  source: string
+  payloadJson?: string | null
+  executionStatus: string
+  createdAt?: string
+}
+
+export type GhAlarm = {
+  id: number
+  zoneId?: string | null
+  deviceSn?: string | null
+  alarmType: string
+  message: string
+  status: string
+  createdAt?: string
+  resolvedAt?: string | null
+}
+
+export type GhReport = {
+  id: number
+  reportType: string
+  title: string
+  status: string
+  authorId?: number | null
+  authorRole?: string | null
+  zoneId?: string | null
+  reportDate?: string
+  summaryZh?: string | null
+  bodyJson?: string | null
+  workOrderIds?: string | null
+  reviewerId?: number | null
+  reviewNote?: string | null
+  reviewedAt?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type DaySeriesPoint = {
@@ -232,6 +274,8 @@ export const greenhouseApi = {
     http<GhWorkOrder[]>(`/greenhouse/work-orders${status ? `?status=${status}` : ''}`),
   approve: (id: number) => http<string>(`/greenhouse/work-orders/${id}/approve`, { method: 'POST' }),
   reject: (id: number) => http<string>(`/greenhouse/work-orders/${id}/reject`, { method: 'POST' }),
+  /** 种植员接单执行（下发执行器并完成） */
+  claim: (id: number) => http<string>(`/greenhouse/work-orders/${id}/claim`, { method: 'POST' }),
   complete: (id: number) => http<string>(`/greenhouse/work-orders/${id}/complete`, { method: 'POST' }),
   dimming: (sn: string, dimmingPercent: number) =>
     http<string>(`/greenhouse/lamps/${sn}/dimming`, {
@@ -246,5 +290,47 @@ export const greenhouseApi = {
   climateProfiles: () => http<Record<string, { id: string; labelZh: string }>>('/greenhouse/climate-profiles'),
   devices: (zoneId?: string) =>
     http<GhDevice[]>(`/greenhouse/devices${zoneId ? `?zoneId=${encodeURIComponent(zoneId)}` : ''}`),
+  controlLogs: (params?: { limit?: number; source?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.limit != null) q.set('limit', String(params.limit))
+    if (params?.source) q.set('source', params.source)
+    const qs = q.toString()
+    return http<GhControlLog[]>(`/greenhouse/control-logs${qs ? `?${qs}` : ''}`)
+  },
+  alarms: (params?: { status?: string; limit?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.status) q.set('status', params.status)
+    if (params?.limit != null) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return http<GhAlarm[]>(`/greenhouse/alarms${qs ? `?${qs}` : ''}`)
+  },
+  resolveAlarm: (id: number) =>
+    http<string>(`/greenhouse/alarms/${id}/resolve`, { method: 'PUT' }),
+  reports: (params?: { type?: string; status?: string; limit?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.type) q.set('type', params.type)
+    if (params?.status) q.set('status', params.status)
+    if (params?.limit != null) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return http<GhReport[]>(`/greenhouse/reports${qs ? `?${qs}` : ''}`)
+  },
+  report: (id: number) => http<GhReport>(`/greenhouse/reports/${id}`),
+  draftDailyReport: (zoneId?: string) =>
+    http<GhReport>('/greenhouse/reports/daily-draft', {
+      method: 'POST',
+      body: JSON.stringify({ zoneId: zoneId || 'ZONE-A' }),
+    }),
+  draftTrainingReport: (zoneId?: string) =>
+    http<GhReport>('/greenhouse/reports/training-draft', {
+      method: 'POST',
+      body: JSON.stringify({ zoneId: zoneId || 'ZONE-A' }),
+    }),
+  submitReport: (id: number) =>
+    http<string>(`/greenhouse/reports/${id}/submit`, { method: 'POST' }),
+  reviewReport: (id: number, note: string, approve = true) =>
+    http<string>(`/greenhouse/reports/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ note, approve }),
+    }),
   resetDay: () => http<string>('/greenhouse/sim/reset-day', { method: 'POST' }),
 }

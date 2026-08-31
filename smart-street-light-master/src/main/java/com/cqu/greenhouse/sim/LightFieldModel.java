@@ -268,38 +268,95 @@ public final class LightFieldModel {
             if (dim <= 0) {
                 continue;
             }
-            double lx = lamp.getPosX() != null ? lamp.getPosX().doubleValue() : x;
-            double ly = lamp.getPosY() != null ? lamp.getPosY().doubleValue() : y;
-            double lz = lamp.getPosZ() != null ? lamp.getPosZ().doubleValue() : 1.85;
-            double dx = x - lx;
-            double dy = y - ly;
-            double dz = z - lz;
-            double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (dist < 0.05) {
-                continue;
-            }
-            // 光轴向下 (0,0,-1)，接收点相对灯的方向
-            double cosAim = (-dz) / dist;
-            if (cosAim <= 0.02) {
-                continue;
-            }
-            double halfAng = Math.toRadians(GreenhouseGeometry.beamHalfAngleDeg(lamp.getDeviceSn()));
-            double ang = Math.acos(Math.min(1, Math.max(-1, cosAim)));
-            double beam = 1.0;
-            if (ang > halfAng) {
-                double soft = Math.max(0, 1.0 - (ang - halfAng) / (Math.PI / 2 - halfAng + 1e-6));
-                beam = soft * soft;
-                if (beam < 0.02) {
-                    continue;
-                }
-            }
-            double designH = Math.max(0.4, GreenhouseGeometry.designClearanceM(lamp.getDeviceSn()));
-            double maxCanopy = GreenhouseGeometry.lampMaxPpfdAtCanopy(lamp.getDeviceSn());
-            double peak = maxCanopy * designH * designH;
-            double occ = ledOcclusion(lx, ly, lz, x, y, z, occluders);
-            total += peak * cosAim / (dist * dist) * (dim / 100.0) * beam * occ;
+            total += unitLedAt(x, y, z, lamp, occluders) * (dim / 100.0);
         }
         return total;
+    }
+
+    /**
+     * 单灯 dimming=100% 时对点 (x,y,z) 的 PPFD 贡献（含床体遮挡）。
+     * 用于响应矩阵 A：ppfd_led = Σ A[i,j] · (d_j/100)。
+     */
+    public static double unitLedAt(double x, double y, double z, GhDevice lamp,
+                                   List<GreenhouseGeometry.BedBox> occluders) {
+        if (lamp == null) {
+            return 0;
+        }
+        double lx = lamp.getPosX() != null ? lamp.getPosX().doubleValue() : x;
+        double ly = lamp.getPosY() != null ? lamp.getPosY().doubleValue() : y;
+        double lz = lamp.getPosZ() != null ? lamp.getPosZ().doubleValue() : 1.85;
+        double dx = x - lx;
+        double dy = y - ly;
+        double dz = z - lz;
+        double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < 0.05) {
+            return 0;
+        }
+        double cosAim = (-dz) / dist;
+        if (cosAim <= 0.02) {
+            return 0;
+        }
+        double halfAng = Math.toRadians(GreenhouseGeometry.beamHalfAngleDeg(lamp.getDeviceSn()));
+        double ang = Math.acos(Math.min(1, Math.max(-1, cosAim)));
+        double beam = 1.0;
+        if (ang > halfAng) {
+            double soft = Math.max(0, 1.0 - (ang - halfAng) / (Math.PI / 2 - halfAng + 1e-6));
+            beam = soft * soft;
+            if (beam < 0.02) {
+                return 0;
+            }
+        }
+        double designH = Math.max(0.25, GreenhouseGeometry.designClearanceM(lamp.getDeviceSn()));
+        double maxCanopy = GreenhouseGeometry.lampMaxPpfdAtCanopy(lamp.getDeviceSn());
+        double peak = maxCanopy * designH * designH;
+        double occ = ledOcclusion(lx, ly, lz, x, y, z, occluders);
+        return peak * cosAim / (dist * dist) * beam * occ;
+    }
+
+    /** 测点 × 灯 响应矩阵（行=传感器，列=灯，值=100% 时贡献） */
+    public static ResponseMatrix buildResponseMatrix(GhZone zone, List<GhDevice> devices) {
+        List<GhDevice> lamps = devices.stream()
+                .filter(d -> "GROW_LAMP".equals(d.getDeviceType()))
+                .toList();
+        List<GhDevice> sensors = devices.stream()
+                .filter(d -> "PAR_SENSOR".equals(d.getDeviceType()))
+                .toList();
+        List<GreenhouseGeometry.BedBox> occluders = GreenhouseGeometry.bedOccluders(zone.getZoneId());
+        int m = sensors.size();
+        int n = lamps.size();
+        double[][] a = new double[m][n];
+        String[] sensorSns = new String[m];
+        String[] lampSns = new String[n];
+        for (int j = 0; j < n; j++) {
+            lampSns[j] = lamps.get(j).getDeviceSn();
+        }
+        for (int i = 0; i < m; i++) {
+            GhDevice s = sensors.get(i);
+            sensorSns[i] = s.getDeviceSn();
+            double x = s.getPosX() != null ? s.getPosX().doubleValue() : 0;
+            double y = s.getPosY() != null ? s.getPosY().doubleValue() : 0;
+            double z = s.getPosZ() != null ? s.getPosZ().doubleValue()
+                    : GreenhouseGeometry.measurePlaneZ(zone.getZoneId());
+            for (int j = 0; j < n; j++) {
+                a[i][j] = unitLedAt(x, y, z, lamps.get(j), occluders);
+            }
+        }
+        return new ResponseMatrix(sensorSns, lampSns, a, lamps);
+    }
+
+    public record ResponseMatrix(
+            String[] sensorSns,
+            String[] lampSns,
+            double[][] a,
+            List<GhDevice> lamps
+    ) {
+        public int sensorCount() {
+            return sensorSns.length;
+        }
+
+        public int lampCount() {
+            return lampSns.length;
+        }
     }
 
     /** 补光线穿过其它床冠层时衰减 */

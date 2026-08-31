@@ -38,7 +38,8 @@
 **联调注意**
 
 - 设备 SN 必须先在 `gh_devices` 落档，否则上行丢弃。  
-- 发布端与订阅端同 broker 时注意回环；进程内仿真默认不外发 telemetry。  
+- 发布端与订阅端同 broker 时注意回环；进程内仿真默认**不**外发 telemetry（`greenhouse.sim.publish-mqtt-telemetry=false`）。  
+- 可选硬件路径模拟：`scripts/mqtt-simulate-greenhouse.ps1`（compose profile `gh-hw-sim`）订阅 `command` 回 `status`。  
 - 光棚 Topic `smart-greenhouse/` 与历史 `smart-light/` 隔离，勿混用。
 
 ---
@@ -59,11 +60,17 @@
 | POST | `/greenhouse/lamps/{sn}/dimming` | `{ "dimmingPercent": 0-100 }` |
 | POST | `/greenhouse/shades/{sn}/open-percent` | `{ "shadeOpenPercent": 0-100 }` |
 | GET | `/greenhouse/work-orders?status=` | 工单 |
-| POST | `/greenhouse/work-orders/{id}/approve` | 批准并下发 |
+| POST | `/greenhouse/work-orders/{id}/approve` | 批准（**不下发**） |
 | POST | `/greenhouse/work-orders/{id}/reject` | 驳回 |
-| POST | `/greenhouse/work-orders/{id}/complete` | 完成 |
-| GET | `/greenhouse/control-logs?limit=` | 控制日志 |
-| GET | `/greenhouse/climate-profiles` | 重庆日型列表 |
+| POST | `/greenhouse/work-orders/{id}/claim` | 接单执行（下发并完成） |
+| POST | `/greenhouse/work-orders/{id}/complete` | 完成（仅 `IN_PROGRESS`） |
+| GET | `/greenhouse/control-logs?limit=&source=` | 控制日志（`gh_control_logs`） |
+| GET | `/greenhouse/alarms?status=&limit=` | 光棚告警（`gh_alarms`） |
+| PUT | `/greenhouse/alarms/{id}/resolve` | 消警 |
+| GET | `/greenhouse/reports?type=&status=&limit=` | 报告列表 |
+| POST | `/greenhouse/reports/daily-draft` | 生成/刷新当日 `DAILY_LIGHT` 草稿 |
+| POST | `/greenhouse/reports/{id}/submit` | 提交草稿 |
+| POST | `/greenhouse/reports/{id}/review` | 批阅 `{ note, approve }` |
 | POST | `/greenhouse/sim/tick` | 手动推进仿真（调试） |
 
 前端 Vite 已代理 `/greenhouse` → `:8080`。
@@ -79,6 +86,7 @@
 | 通道 | 用途 |
 |------|------|
 | STOMP `/topic/greenhouse` | 仿真/控制后刷新总览与冠层 |
+| STOMP `/topic/alarms` · `/topic/greenhouse-alarms` | 光棚告警推送（前端 toast / 日志页刷新） |
 
 前端：`stores/realtime.ts` → `greenhouseTick`。
 
@@ -100,6 +108,8 @@
 3. 切换 `cq-summer-noon` / `cq-winter-fog`，遮阳或补光有可见动作或工单。  
 4. 待审批工单可批准，灯/遮阳状态更新。  
 5. MQTT（可选）：用 mosquitto_pub 发一条 telemetry，测点 `last_ppfd` 更新。  
+6. 控制日志页可见 `gh_control_logs`；告警 Tab 可见欠/过光或离线；可消警。  
+7. （可选）`mqtt-simulate-greenhouse.ps1` 启动后，非 `sim.*` 适配器指令可走 PENDING→SUCCESS。 
 
 失败时优先查：迁移是否执行、`greenhouse.sim.enabled`、EMQX 是否 healthy、浏览器 Network 的 `code`。
 

@@ -15,7 +15,9 @@ const emit = defineEmits<{
   <div class="region-overview">
     <div class="head">
       <h3 class="ui-section-title">分区光照一览</h3>
-      <span class="hint">点击行切换日曲线视角 · 缺口 = 实况 − 目标中值</span>
+      <span class="hint"
+        >点击行切换视角 · 缺口 = 实况 − 目标中值 · 同半跨内南北床直射差属正常，需 AUTO 分床补光</span
+      >
     </div>
     <div class="table-wrap">
       <table>
