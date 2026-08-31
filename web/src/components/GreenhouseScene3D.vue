@@ -149,12 +149,6 @@ const sunHud = computed(() => {
   return `太阳 ${Number(el).toFixed(0)}° · ${Number(az).toFixed(0)}° ${dir}`
 })
 
-const modelHud = computed(() => {
-  if (assetSource.value === 'loading') return '模型：加载中…'
-  if (assetSource.value === 'glb') return '模型：GLB 资产 · cq-demo-bay'
-  return '模型：程序化回退'
-})
-
 const heatMax = computed(() => {
   const g = props.light?.grid || []
   return Math.max(props.light?.recipe?.ppfdHardMax ?? 120, ...g.map((p) => p.ppfd), 1)
@@ -1015,26 +1009,6 @@ function makeHeatLayer(
   )
   mesh.renderOrder = renderOrder
   return mesh
-}
-
-function makeSensorLabel(text: string): THREE.Sprite {
-  const canvas = document.createElement('canvas')
-  canvas.width = 256
-  canvas.height = 72
-  const ctx = canvas.getContext('2d')!
-  ctx.clearRect(0, 0, 256, 72)
-  ctx.fillStyle = 'rgba(29,29,31,0.82)'
-  roundRect(ctx, 8, 8, 240, 56, 10)
-  ctx.fill()
-  ctx.fillStyle = '#34c759'
-  ctx.font = '700 22px ui-monospace, monospace'
-  ctx.textAlign = 'center'
-  ctx.fillText(text, 128, 44)
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }),
-  )
-  spr.scale.set(1.4, 0.4, 1)
-  return spr
 }
 
 function updateHeatmap(light: GhEffectiveLight) {

@@ -15,6 +15,20 @@ const list = ref<Msg[]>([
   },
 ])
 
+/** 快捷提问（点选填入输入框） */
+const quickQuestions = [
+  '石斛光配方',
+  '草莓怎么补光',
+  '金线莲光配方',
+  '当前 PPFD 多少',
+  'DLI 是什么',
+  '大棚多大',
+  '有哪些角色账号',
+  '工单怎么审批',
+  '怎么接入设备',
+  '遮阳怎么控制',
+]
+
 const listEl = ref<HTMLElement | null>(null)
 let poll: number | undefined
 
@@ -33,7 +47,7 @@ async function loadLive() {
 
 /* ============================ 知识库（源自 docs/greenhouse 与 SQL 配方） ============================ */
 
-type Knowledge = { keys: string[]; topic: string; answer: string }
+type Knowledge = { keys: string[]; topic: string; answer: string; kind?: 'concept' }
 
 /** 铁皮石斛 —— 主叙事作物 */
 function dendrobiumRecipes(): Knowledge[] {
@@ -156,6 +170,189 @@ function generalRecipes(): Knowledge[] {
   ]
 }
 
+/** 概念类：DLI / 光质 / VPD（源自 contracts/light-recipe.md） */
+function conceptRecipes(): Knowledge[] {
+  return [
+    {
+      keys: ['dli', '日积分', '光积分', '光累积', '累计光'],
+      topic: 'DLI 光日积分',
+      kind: 'concept',
+      answer:
+        'DLI（Daily Light Integral，每日光积分）= 冠层一天累计接收的光量子总量，单位 mol·m⁻²·d⁻¹。\n' +
+        '估算公式：DLI ≈ PPFD（µmol·m⁻²·s⁻¹）× 光周期（h）× 0.0036。\n' +
+        '例：石斛组培 12h × 65 PPFD ≈ 2.8 mol·m⁻²·d⁻¹；草莓目标 DLI 17–25 对应强补光需求。',
+    },
+    {
+      keys: ['光质', '光谱', '红蓝', '波长', 'nm', '红光', '蓝光', '光谱比'],
+      topic: '光质与光谱',
+      kind: 'concept',
+      answer:
+        '本棚补光灯按 BOM 选智圣普 ZPDM651（红蓝 450+660 nm 或全光谱），0–10V/PWM 调光。\n' +
+        '设施草莓常配红蓝光 9/1 光质；LED 补光相对对照可增产约 33–56%、采收提前约 10 天。\n' +
+        '光谱与 PPFD/DLI 解耦设计：前端“三色光谱”通道可切换查看，不影响目标带控制。',
+    },
+    {
+      keys: ['vpd', '蒸汽压差', '蒸腾', '叶面'],
+      topic: 'VPD 蒸汽压差',
+      kind: 'concept',
+      answer:
+        'VPD（饱和蒸汽压差）衡量空气“渴水”程度，越高叶面蒸腾越快。\n' +
+        '配方可选门控：vpdHighKpa=1.4 时补光降至 0.85 倍；基质湿度 <25% 时禁止升调光，避免干热胁迫。\n' +
+        'MVP 演示主要靠重庆日型派生温湿度，暂不作主控输入。',
+    },
+  ]
+}
+
+/** 棚体与布局类（源自 GREENHOUSE-LAYOUT.md / layouts JSON） */
+function layoutRecipes(): Knowledge[] {
+  return [
+    {
+      keys: ['多大', '尺寸', '面积', '棚体', '大棚', '几何', '结构', '脊高', '檐高', '网格', '坐标', '朝向'],
+      topic: '棚体尺寸与结构',
+      answer:
+        'cq-demo-bay-v1 单跨拱棚：净长 16.0 m（东西）× 净宽 7.0 m（南北），檐高 2.8 m、脊高 3.8 m，\n' +
+        '覆盖膜透光率 0.65；光场网格 32×14（约 0.5 m 一格）。\n' +
+        '坐标约定：西南角为原点，+X 东、+Y 北、+Z 上；长轴东西、南向采光（正午光从南侧进入）。',
+    },
+    {
+      keys: ['分区', 'zone', '床', '床位', 'a区', 'b区', '布局', '栽培'],
+      topic: '功能分区与床位',
+      answer:
+        '两区布局：ZONE-A（X 0.5–7.5 m）铁皮石斛，ZONE-B（X 8.5–15.5 m）金线莲⇄草莓切换；\n' +
+        '中央横通道 7.5–8.5 m 供人行/管线。\n' +
+        '每区 3 条东西向床：南床（Y 1.0–1.8）、中床（Y 3.1–3.9）、北床（Y 5.2–6.0），床面抬高 0.2 m；\n' +
+        '冠层测光面：A 区 0.5 m、B 区 0.45 m。南北自然光梯度：南床 ×1.06、北床 ×0.94。',
+    },
+    {
+      keys: ['灯', '布灯', '灯位', '灯高', '吊灯', '灯具', '安装', '分床'],
+      topic: '补光灯排布（v1.3）',
+      answer:
+        'v1.3 布灯：每床 3 灯、灯发光中心 Z=1.85 m（冠层净空约 0.95 m），光束半角 55°，床架有遮挡，\n' +
+        '按床同步调光（分床控光）。\n' +
+        '种子实装：A 区 4 灯（LAMP-ZONE-A-01~04，初始 20%）、B 区 3 灯（LAMP-ZONE-B-01~03，初始 10%）。',
+    },
+    {
+      keys: ['遮阳', '遮阳网', '外遮阳', '档位', '开度', 'shade', '遮阴', '半跨'],
+      topic: '外遮阳系统',
+      answer:
+        '外遮阳（脊下 Z≈3.50）分两半跨独立控制：SHADE-ZONE-A 覆盖 X 0–8、SHADE-ZONE-B 覆盖 X 8–16。\n' +
+        '最大遮光 maxBlock=0.85；开度语义：shadeOpenPercent 100=网全收（透光最大）、0=网满展（遮光最大）。\n' +
+        '执行器按 BOM 为创明众联 B 类（RS485 可运行到任意开度）；夏正午强光靠它降温降光。',
+    },
+  ]
+}
+
+/** 设备与硬件类（源自 HARDWARE-BOM.md） */
+function hardwareRecipes(): Knowledge[] {
+  return [
+    {
+      keys: ['传感器', '测点', 'par', '光照传感', '量子', 'sq500', '测光', '探头'],
+      topic: 'PAR 光传感器',
+      answer:
+        '每床 3 个 PAR 测点，A/B 区各 3 个，与灯 XY 对齐、Z=测光面。\n' +
+        '型号（BOM）：主 APOGEE SQ-500（PPFD 科研级）、辅建大仁科 RS-GZ-N01（lux/RS485）、\n' +
+        '实训 BH1750（I2C）、备选 LI-COR LI-190R。演示默认 sim.par 适配器，切真机只改 adapterId。',
+    },
+    {
+      keys: ['lux', '勒克斯', '换算', '转换', '系数', 'kx'],
+      topic: 'lux → PPFD 换算',
+      answer:
+        'lux 与 PPFD 无统一精确系数（自然光与 LED 光谱不同）。仿真默认：\n' +
+        '自然光 k≈0.0185、红蓝 LED 0.012–0.020（默认 0.015）、全光谱≈0.014（ppfd≈lux×k）。\n' +
+        '石斛控制阈值一律按 PPFD 比较；若硬件只回 lux，由边缘/云侧先换算再入规则。',
+    },
+    {
+      keys: ['设备', '型号', 'sn', '编号', '命名', '前缀', '适配器', 'adapter'],
+      topic: '设备型号与 SN 约定',
+      answer:
+        'SN 前缀约定：PAR- 光照测点、LAMP- 补光灯、SHADE- 遮阳轴、ZONE- 分区、BED- 栽培床、ENV- 温湿度。\n' +
+        '补光灯 ZPDM651（100–300 W，0–10V/PWM 调光），遮阳创明众联 B 类，调光链路 RS485→0–10V。\n' +
+        '演示全走 sim.* 适配器；真机仅改设备档案 adapterId 即可切换。',
+    },
+  ]
+}
+
+/** 角色权限与协同类（源自 RBAC-ROLES.md） */
+function rbacRecipes(): Knowledge[] {
+  return [
+    {
+      keys: ['角色', '权限', '账号', '登录', '密码', '身份', 'rbac', '场长', '农艺师', '种植员', '运维', '学员', '系统管理员', '哪个'],
+      topic: '六角色与演示账号',
+      answer:
+        '六类角色：场长 SITE_MANAGER（全局策略/报告）、农艺师 AGRONOMIST（配方/审批）、\n' +
+        '种植员 GROWER（接单执行）、设备运维 DEVICE_OPS（设备/调试）、学员 TRAINEE（只读实训）、系统管理员 SYS_ADMIN（账号/仿真）。\n' +
+        '演示账号：admin/admin123（系统）、changzhang/demo123（场长）、nongyi/demo123（农艺）、\n' +
+        'zhongzhi/demo123（种植）、yunwei/demo123（运维）、xueyuan/demo123（学员）。',
+    },
+    {
+      keys: ['工单', '审批', '待办', 'pending', 'approve', '接单', '执行', '完成', '驳回', '状态机', '门控'],
+      topic: '工单状态机与审批',
+      answer:
+        '工单状态机：PENDING（待批）→ APPROVED（已批）→ IN_PROGRESS（接单）→ COMPLETED（完成），\n' +
+        '可 REJECTED（驳回）；超时未接单可升级通知场长。\n' +
+        '关键约定：approve 只批准、不直接下发执行器；种植员接单/显式 execute 后才真正下发，全程可审计。',
+    },
+    {
+      keys: ['权限申请', '申请', '临时', 'grant', '维护窗', '紧急', '沙箱', '越权'],
+      topic: '权限申请',
+      answer:
+        '越权/临时操作走权限申请（gh_perm_requests）。类型：\n' +
+        'EMERGENCY_CTRL（紧急超阈值调光，限时 2h）、MAINT_WINDOW（运维维护窗，窗内暂停 AUTO）、\n' +
+        'SANDBOX_ZONE（学员沙箱）、REPORT_EXPORT、ROLE_TEMP。\n' +
+        '农艺/场长批准后写临时 grant，所有操作进审计；批准后可选自动生成工单。',
+    },
+    {
+      keys: ['报告', '日报', '产量', '能耗', '经济', 'economics', '电费', '健康'],
+      topic: '报告体系',
+      answer:
+        '报告四类：DAILY_LIGHT 日光照报告（DLI、目标达成、工单摘要、产量指数、电费估）、\n' +
+        'ENERGY_YIELD 产量-能耗平衡复盘、DEVICE_HEALTH 设备健康（离线/标定）、TRAINING 学员实训。\n' +
+        '日报告可引用当日工单 id、economics 快照与权限申请结果。',
+    },
+  ]
+}
+
+/** 系统接入与运行类（源自 contracts/mqtt.md / IMPLEMENT.md） */
+function systemRecipes(): Knowledge[] {
+  return [
+    {
+      keys: ['mqtt', '协议', '接入', '接入设备', '设备接入', '怎么接入', 'topic', '主题', 'broker', '遥测', '指令', '订阅', '物联网', '下发'],
+      topic: 'MQTT 接入',
+      answer:
+        'MQTT Broker 用 EMQX（本地 :1883）。主题前缀 smart-greenhouse/：\n' +
+        '{deviceSn}/telemetry 上行遥测、{deviceSn}/status 执行器状态、{deviceSn}/alarm 告警、\n' +
+        '{deviceSn}/command 下行指令（SET_DIMMING / SET_OPEN_PERCENT / POWER_ON / POWER_OFF）。\n' +
+        '指令执行 PENDING→SUCCESS|TIMEOUT|FAIL；调光容差 ±3%、遮阳 ±5%，超时 30s 判 TIMEOUT 并告警。',
+    },
+    {
+      keys: ['端口', '端口号', 'api', '8080', '5173', '1883', '18083', 'emqx', '怎么跑', '启动', '本地', '地址'],
+      topic: '端口与本地运行',
+      answer:
+        '本地联调端口：Web :5173、后端 API :8080、PostgreSQL :5433、EMQX MQTT :1883、\n' +
+        'EMQX 控制台 :18083（admin/public）。\n' +
+        '后端以 profiles=local,secret 启动；scripts/run-local.ps1 可一键起 Docker+建库+编译+启动。',
+    },
+    {
+      keys: ['仿真', '模拟', '日型', '压缩', '时间', '一天', 'climate', '重庆', '重跑', 'reset'],
+      topic: '仿真与重庆日型',
+      answer:
+        '重庆日型仿真：一天压缩为 120 秒连续推进（interval-ms 250，约 3 仿真分钟/步），\n' +
+        'POST /greenhouse/sim/reset-day 可重跑今日。\n' +
+        '日型：cq-winter-fog（冬雾寡照）/ cq-winter-clear / cq-summer-noon / cq-overcast，驱动自然光与南北梯度。',
+    },
+    {
+      keys: ['规则', '闭环', '控制', 'cooldown', '冷却', '硬限', '目标带', '光周期', '逻辑', '怎么控'],
+      topic: '控制规则细节',
+      answer:
+        '规则引擎每周期读区有效 PPFD：\n' +
+        '· 高于硬限：优先降遮阳开度，仍高再降补光；\n' +
+        '· 低于硬限：优先升补光（光周期内），遮阳过厚再收网；\n' +
+        '· 目标带内做微调；带 60s cooldown 防抖。\n' +
+        '大开度（≥80）变更进 PENDING 工单、禁直发；光周期外默认关灯（MVP）。',
+    },
+  ]
+}
+
 function envLine(): string {
   if (!live) return '（实时数据暂不可用）'
   return `湿度 ${live.humidityPct ?? '—'}%、温度 ${live.temperatureC ?? '—'}°C、遮阳开度 ${live.shadeOpenPercent}%、DLI 累计 ${live.dliSoFar}。`
@@ -167,64 +364,89 @@ function allKnowledge(): Knowledge[] {
     ...dendrobiumRecipes(),
     ...strawberryRecipes(),
     ...anoectochilusRecipes(),
+    ...conceptRecipes(),
+    ...layoutRecipes(),
+    ...hardwareRecipes(),
+    ...rbacRecipes(),
+    ...systemRecipes(),
     ...generalRecipes(),
   ]
 }
 
 /* ============================ 规则匹配引擎 ============================ */
 
-const ALL = '作物知识 / 棚体 / 光环境 / 配方 / 补光 / 遮阳'
+const ALL =
+  '作物知识（石斛/草莓/金线莲配方）· 光环境（PPFD/DLI/遮阳/温湿度）· 棚体与布局 · 设备与硬件 · 角色权限与账号 · 工单与审批 · MQTT 接入 · 仿真与运行'
 
-/** 从命中条目中挑评分最高者（命中关键词越多越好） */
+/** 查询归一化：转小写、去标点与空白，提升关键词命中率 */
+function normalizeQuery(q: string): string {
+  return q.toLowerCase().replace(/[\s，。！？、,.;:：；!?'"“”‘’（）()【】\[\]<>《》·-]+/g, '')
+}
+
+/** 从命中条目中挑评分最高者（命中关键词越多越好；同分时更长关键词优先；概念问法优先概念条目） */
 function bestKnowledge(q: string): Knowledge | null {
+  const nq = normalizeQuery(q)
+  const askConcept = /(是什么|啥是|什么叫|定义|解释|概念|介绍)/.test(q)
   let best: Knowledge | null = null
   let bestScore = 0
+  let bestKeyLen = 0
   for (const k of allKnowledge()) {
-    const score = k.keys.reduce((s, key) => s + (q.includes(key) ? 1 : 0), 0)
-    if (score > bestScore) {
+    let score = 0
+    let maxLen = 0
+    for (const key of k.keys) {
+      if (nq.includes(normalizeQuery(key))) {
+        score += 1
+        const kl = key.length
+        if (kl > maxLen) maxLen = kl
+      }
+    }
+    if (askConcept && k.kind === 'concept') score += 1
+    if (score > bestScore || (score === bestScore && maxLen > bestKeyLen)) {
       best = k
       bestScore = score
+      bestKeyLen = maxLen
     }
   }
   return bestScore > 0 ? best : null
 }
 
+/** 实时光环境：仅明确「当前/现在/实时」意图时触发，避免抢答知识类问题 */
 function liveRealTimeAnswer(q: string): string | null {
-  if (/实时|当前|现在|最新/.test(q) || /ppfd|光强|dli|遮阳|湿度|温度|光照/.test(q)) {
-    const r = live
-    if (!r) {
-      return '正在读取棚内实时光环境，请稍候再问我（需后端 greenhouse API 可用）。'
-    }
-    const parts = [
-      `调控后有效 PPFD：${Number(r.effectivePpfd).toFixed(1)} µmol·m⁻²·s⁻¹`,
-      `自然光贡献：${r.naturalPpfd ?? '—'} / 补光贡献：${r.ledPpfd ?? '—'}`,
-      `遮阳开度：${r.shadeOpenPercent}%`,
-      `DLI 累计：${r.dliSoFar}`,
-      `湿度：${r.humidityPct ?? '—'}% · 温度：${r.temperatureC ?? '—'}°C`,
-    ]
-    if (r.recipe) {
-      parts.push(
-        `当前配方：${r.recipe.cropNameZh}（${r.recipe.stage}）目标带 ${r.recipe.ppfdTargetMin}–${r.recipe.ppfdTargetMax} PPFD`,
-      )
-    }
-    return `🌡 当前 ZONE-A 棚内实时光环境：\n${parts.join('\n')}`
+  const wantLive =
+    /(实时|当前|现在|最新|此刻|目前)/.test(q) &&
+    /(ppfd|光|dli|遮阳|湿度|温度|光照|环境)/.test(q)
+  if (!wantLive) {
+    return null
   }
-  return null
+  const r = live
+  if (!r) {
+    return '正在读取棚内实时光环境，请稍候再问我（需后端 greenhouse API 可用）。'
+  }
+  const parts = [
+    `调控后有效 PPFD：${Number(r.effectivePpfd).toFixed(1)} µmol·m⁻²·s⁻¹`,
+    `自然光贡献：${r.naturalPpfd ?? '—'} / 补光贡献：${r.ledPpfd ?? '—'}`,
+    `遮阳开度：${r.shadeOpenPercent}%`,
+    `DLI 累计：${r.dliSoFar}`,
+    `湿度：${r.humidityPct ?? '—'}% · 温度：${r.temperatureC ?? '—'}°C`,
+  ]
+  if (r.recipe) {
+    parts.push(
+      `当前配方：${r.recipe.cropNameZh}（${r.recipe.stage}）目标带 ${r.recipe.ppfdTargetMin}–${r.recipe.ppfdTargetMax} PPFD`,
+    )
+  }
+  return `🌡 当前 ZONE-A 棚内实时光环境：\n${parts.join('\n')}`
 }
 
 /* 默认兜底 */
 function fallback(q: string): string {
-  const crop = /石斛|草莓|金线莲/ .test(q) ? `关于“${q}”` : `问题“${q}”`
-  return `${crop}，我暂时没找到匹配的知识。我可以解答：\n${ALL}\n或者试试查实时数据（如“当前 PPFD”）。`
+  const topics = [...new Set(allKnowledge().map((k) => k.topic))]
+  return `关于“${q}”，我暂时没找到完全匹配的知识。我可以解答：\n${ALL}\n例如：${topics.join('、')}。\n也可以试试“当前 PPFD 多少”查看实时光环境。`
 }
 
 /* ============================ 主入口 ============================ */
 function answer(q: string): string {
   const t = q.trim()
   if (!t) return '请输入你想了解的作物或棚内问题。'
-
-  const liveAns = liveRealTimeAnswer(t)
-  if (liveAns) return liveAns
 
   /* 招呼语 */
   if (/(你好|您好|hello|hi|在吗|嗨)/i.test(t)) {
@@ -235,8 +457,14 @@ function answer(q: string): string {
     return `我可以解答：\n${ALL}\n以及棚内实时光环境（PPFD、DLI、遮阳、温湿度）。`
   }
 
+  /* 知识库优先匹配 */
   const k = bestKnowledge(t)
   if (k) return k.answer
+
+  /* 实时光环境（仅明确时间词） */
+  const liveAns = liveRealTimeAnswer(t)
+  if (liveAns) return liveAns
+
   return fallback(t)
 }
 
@@ -320,15 +548,17 @@ onUnmounted(() => {
       </div>
 
       <div class="foot">
-        <button
-          v-for="q in ['石斛光配方', '草莓怎么补光', '当前 PPFD 多少']"
-          :key="q"
-          type="button"
-          class="chip"
-          @click="input = q"
-        >
-          {{ q }}
-        </button>
+        <div class="chips">
+          <button
+            v-for="q in quickQuestions"
+            :key="q"
+            type="button"
+            class="chip"
+            @click="input = q"
+          >
+            {{ q }}
+          </button>
+        </div>
         <div class="composer">
           <textarea
             v-model="input"
@@ -506,8 +736,12 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 8px;
 }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .chip {
-  align-self: flex-start;
   border: 1px solid var(--line-strong);
   background: var(--paper);
   color: var(--ink-soft);
