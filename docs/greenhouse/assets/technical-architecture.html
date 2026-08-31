@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>智慧光棚 · 技术架构图</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width: 1600px; height: 1000px;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f7f8fb; overflow:hidden;
+  }
+  .title { position:absolute; top:20px; left:0; right:0; text-align:center; font-size:30px; font-weight:700; color:#1f2d45; letter-spacing:2px; }
+  .subtitle { position:absolute; top:62px; left:0; right:0; text-align:center; font-size:15px; color:#6b768a; }
+
+  .box {
+    position:absolute; border-radius:16px; padding:16px 22px;
+    background:#fff; border:2px solid #d5dceb;
+    box-shadow:0 6px 18px rgba(30,45,80,.08);
+  }
+  .box .t { font-size:17px; font-weight:700; display:block; margin-bottom:8px; }
+  .box .t::before { content:"▧ "; }
+  .tech { font-size:12.5px; color:#3d4a63; line-height:1.6; }
+  .tech b { color:#2f6f8f; }
+
+  #client { left:70px; top:110px; width:320px; height:150px; border-color:#c9d7e8; }
+  #client .t::before { color:#5b83b8; }
+  #fe { left:70px; top:330px; width:560px; height:300px; }
+  #fe .t::before { color:#2f9d8f; }
+  #proto { left:690px; top:150px; width:250px; height:280px; background:#eef3fb; border-style:dashed; }
+  #proto .t::before { color:#8a6bb0; }
+  #be { left:1000px; top:110px; width:530px; height:520px; }
+  #be .t::before { color:#2f6f8f; }
+  #data { left:1000px; top:680px; width:530px; height:230px; }
+  #data .t::before { color:#b07a4a; }
+  #dev { left:70px; top:700px; width:560px; height:200px; }
+  #dev .t::before { color:#4c8a6b; }
+
+  .arrow { position:absolute; font-size:20px; color:#7a8aa8; font-weight:700; z-index:5; }
+  .lbl { position:absolute; font-size:12px; color:#6b768a; background:#fff; padding:2px 8px; border-radius:6px; border:1px solid #dfe5f0; z-index:6; }
+
+  .row { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+  .pill {
+    background:#eef3fb; border:1px solid #cdd9ec; color:#2b3b57;
+    border-radius:20px; padding:3px 11px; font-size:12.5px; font-weight:600;
+  }
+  .tag { position:absolute; bottom:10px; left:0; right:0; text-align:center; font-size:12px; color:#8a94a6; }
+</style>
+</head>
+<body>
+  <div class="title">智慧光棚 · 技术架构图</div>
+  <div class="subtitle">Vue3 + Spring Boot + PostgreSQL(pgvector) + EMQX · 部署与调用</div>
+
+  <div class="box" id="client">
+    <span class="t">客户端</span>
+    <div class="tech">浏览器（Windows / macOS）<br>Chrome / Edge</div>
+    <div class="row"><span class="pill">http://localhost:5173</span></div>
+  </div>
+
+  <div class="box" id="fe">
+    <span class="t">前端 Web · Vue 3</span>
+    <div class="tech"><b>Vite 8</b> 构建 · <b>Pinia</b> 状态 · <b>Vue Router</b> 路由</div>
+    <div class="tech"><b>Three.js</b> 3D 棚体与热力 · <b>ECharts</b> 曲线</div>
+    <div class="tech"><b>STOMP</b> WebSocket 实时 · <b>Axios</b> REST</div>
+    <div class="tech">JWT 鉴权 · RBAC <b>can()</b> 显隐</div>
+    <div class="row">
+      <span class="pill">web/dist 发布包</span><span class="pill">.env.local 模式开关</span>
+    </div>
+  </div>
+
+  <div class="box" id="proto">
+    <span class="t">通信</span>
+    <div class="tech"><b>REST</b> /users · /greenhouse/**</div>
+    <div class="tech"><b>WebSocket</b> 实时推送</div>
+    <div class="tech"><b>JWT</b> token 头</div>
+    <div class="tech"><b>MQTT over WS</b>（可选）</div>
+    <div class="row"><span class="pill">:8080</span><span class="pill">:5173 代理</span></div>
+  </div>
+
+  <div class="box" id="be">
+    <span class="t">后端 API · Spring Boot 3.5.9（Java 21）</span>
+    <div class="tech"><b>MyBatis-Plus</b> ORM · 分层 Controller/Service/Mapper</div>
+    <div class="tech"><b>Paho MQTT</b> 客户端 · 上下行 Topic</div>
+    <div class="tech"><b>greenhouse.sim</b> 重庆日型仿真引擎（空间光场模型）</div>
+    <div class="tech"><b>规则引擎</b> 配方比对 / 欠补过遮 / 冷却防抖</div>
+    <div class="tech"><b>工单状态机</b> PENDING→APPROVED→EXECUTING→DONE / REJECTED</div>
+    <div class="tech"><b>JWT + RBAC</b> 六角色守卫 · <b>RAG</b> 农艺助手</div>
+    <div class="row">
+      <span class="pill">spring.profiles: local,secret</span><span class="pill">application-secret.yml</span>
+    </div>
+  </div>
+
+  <div class="box" id="data">
+    <span class="t">数据 / 消息</span>
+    <div class="tech"><b>PostgreSQL 17 · pgvector</b> :5433 → gh_* 库表 + RAG 向量</div>
+    <div class="tech"><b>EMQX 5.8.3</b> :1883（MQTT）/ :18083（控制台）</div>
+    <div class="row"><span class="pill">docker compose</span><span class="pill">smart-street-light 库</span></div>
+  </div>
+
+  <div class="box" id="dev">
+    <span class="t">设备侧（演示全仿真 · 真机预留）</span>
+    <div class="tech"><b>仿真适配器</b> PAR 测点 · 补光灯 · 外遮阳 · 环境</div>
+    <div class="tech">上行 <b>telemetry/status/ack</b> · 下行 <b>SET_DIMMING / SET_OPEN_PERCENT</b></div>
+    <div class="row"><span class="pill">MQTT @ :1883</span><span class="pill">EMQX 控制台 admin/public</span><span class="pill">真机 RS-GZ/BH1750 预留</span></div>
+  </div>
+
+  <div class="arrow" style="left:390px; top:180px;">→</div>
+  <div class="arrow" style="left:390px; top:470px;">→</div>
+  <div class="arrow" style="left:630px; top:470px;">→</div>
+  <div class="arrow" style="left:940px; top:300px;">→</div>
+
+  <div class="lbl" style="left:392px; top:120px;">打开 :5173</div>
+  <div class="lbl" style="left:500px; top:500px;">vite 代理 / WS</div>
+  <div class="lbl" style="right:100px; top:120px;">JDK 21 · 宿主机运行</div>
+  <div class="lbl" style="right:100px; top:650px;">docker 容器运行</div>
+
+  <div class="tag">智慧光棚 · 技术架构图（对应提交清单第 2 项）</div>
+</body>
+</html>

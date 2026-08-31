@@ -16,6 +16,11 @@
 | [RBAC-ROLES.md](./RBAC-ROLES.md) | 角色权限与协同（交 B 轨） |
 | [INTEGRATION.md](./INTEGRATION.md) | 对接（MQTT/HTTP） |
 | [SUBMIT.md](./SUBMIT.md) | 提交与验收清单 |
+| [SUBMIT-PLAN.md](./SUBMIT-PLAN.md) | **提交清单盘点 + 六人分工**（对应课程提交清单） |
+| [REQUIREMENTS.md](./REQUIREMENTS.md) | **需求清单**（定位/功能/规则/阈值分级/接口清单） |
+| [DEPLOY.md](./DEPLOY.md) | **部署文档（从零到跑通，含排障）** |
+| [答辩视频脚本.md](./答辩视频脚本.md) | **答辩视频分镜与口播（3 分钟）** |
+| [assets/](./assets/) | **原型思维导图 + 功能/技术架构图（PNG）+ 答辩 PPT（.pptx）** |
 | [IMPLEMENT.md](./IMPLEMENT.md) | 本地启动与已实现 |
 | [RESEARCH-SOLUTION.md](./RESEARCH-SOLUTION.md) | 作物/方案调研 |
 | [CROP-ECONOMICS-STANDARDS-REF.md](./CROP-ECONOMICS-STANDARDS-REF.md) | **作物产量·价值·电费·规范**参考汇编（含真实性核对） |
