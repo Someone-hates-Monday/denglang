@@ -1,103 +1,255 @@
 # 智慧光棚 · 发布包 {{VERSION}}
 
-一键在本机拉起：**PostgreSQL + EMQX + 后端 API + 前端静态站**。
+按下面顺序，在 **Windows PowerShell** 里**逐条复制运行**即可。  
+不要跳步；每一步看到「成功/正常输出」再做下一步。
 
-## 这是什么
+发布包下载：https://github.com/Someone-hates-Monday/zhihui-guangpeng/releases  
+源码仓：https://github.com/Someone-hates-Monday/zhihui-guangpeng
 
-| 内容 | 说明 |
-|------|------|
-| `Start-Guangpeng.ps1` | **一键启动** |
-| `Stop-Guangpeng.ps1` | 停止本机 jar / 前端（Docker 可保留） |
-| `zhihui-guangpeng.jar` | 后端（JDK 21） |
-| `web-dist/` | 前端生产构建（已指向 `http://localhost:8080`） |
-| `infra/` | `docker-compose.yml` + 全套 SQL |
-| `config/` | 密钥模板（首次启动自动生成 `application-secret.yml`） |
-| `tools/init-db.ps1` | 建库与迁移（启动脚本会按需调用） |
+---
 
-协作仓（源码）：https://github.com/Someone-hates-Monday/zhihui-guangpeng  
-本 zip 适合作为**课程提交的「项目发布包」**，与源码仓分离分发。
+## 第 0 步 · 打开终端
 
-## 环境要求
+1. 开始菜单搜索 **PowerShell**，以普通用户打开即可。  
+2. 建议先执行（允许本机脚本，只需做一次）：
 
-1. **Windows 10/11** + PowerShell  
-2. **Docker Desktop**（WSL2 后端可用）  
-3. **JDK 21**（`java -version` 能看到 21）  
-4. **Node.js 18+**（仅用于 `npx serve` 托管前端）
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
 
-## 一键启动
+若提示确认，输入 `Y` 回车。
 
-解压后进入本目录，执行：
+---
+
+## 第 1 步 · 安装并启动 Docker Desktop
+
+若已安装并常开 Docker，可跳到「检查」命令。
+
+1. 安装（任选一种）：
+   - 官网：https://www.docker.com/products/docker-desktop/  
+   - 或 winget：
+
+```powershell
+winget install -e --id Docker.DockerDesktop
+```
+
+2. 安装后**打开 Docker Desktop**，等到状态为 Running（鲸鱼图标稳定）。  
+3. 检查：
+
+```powershell
+docker version
+docker ps
+```
+
+应能看到 Client / Server，且 `docker ps` 不报错。  
+若报 `500` / 引擎失败：先装好 WSL2，再重启 Docker Desktop。
+
+---
+
+## 第 2 步 · 安装 JDK 21
+
+```powershell
+winget install -e --id Microsoft.OpenJDK.21
+```
+
+关闭并重新打开 PowerShell，再检查：
+
+```powershell
+java -version
+```
+
+输出里应出现 `21`。
+
+---
+
+## 第 3 步 · 安装 Node.js（用于托管前端页面）
+
+```powershell
+winget install -e --id OpenJS.NodeJS.LTS
+```
+
+重新打开 PowerShell，检查：
+
+```powershell
+node -v
+npm -v
+```
+
+应显示版本号（建议 Node 18+）。
+
+---
+
+## 第 4 步 · 下载并解压发布包
+
+### 方式 A · 浏览器（最简单）
+
+1. 打开：https://github.com/Someone-hates-Monday/zhihui-guangpeng/releases/tag/v{{VERSION}}  
+2. 下载 **`zhihui-guangpeng-{{VERSION}}.zip`**  
+3. 解压到例如：`D:\apps\zhihui-guangpeng-{{VERSION}}\`  
+4. 进入目录：
+
+```powershell
+cd D:\apps\zhihui-guangpeng-{{VERSION}}
+```
+
+（路径改成你实际解压位置。）
+
+### 方式 B · 命令行下载（需已安装 GitHub CLI `gh`）
+
+```powershell
+cd $HOME\Downloads
+gh release download v{{VERSION}} --repo Someone-hates-Monday/zhihui-guangpeng --pattern "zhihui-guangpeng-{{VERSION}}.zip"
+Expand-Archive -Path .\zhihui-guangpeng-{{VERSION}}.zip -DestinationPath .\zhihui-guangpeng-{{VERSION}} -Force
+cd .\zhihui-guangpeng-{{VERSION}}\zhihui-guangpeng-{{VERSION}}
+```
+
+若解压后多一层文件夹，用 `dir` 找到含有 `Start-Guangpeng.ps1` 的目录再 `cd` 进去：
+
+```powershell
+dir
+# 确认能看到 Start-Guangpeng.ps1 、 zhihui-guangpeng.jar 、 web-dist
+```
+
+---
+
+## 第 5 步 · 一键启动（核心）
+
+在**包含 `Start-Guangpeng.ps1` 的目录**执行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
 ```
 
-成功后会自动打开浏览器：
+首次会：
 
-- 前端：http://localhost:4173  
-- 后端：http://localhost:8080  
-- EMQX 控制台：http://localhost:18083 （`admin` / `public`）
+1. 启动 PostgreSQL、EMQX 容器  
+2. 自动建库并导入演示数据（若库已存在则跳过）  
+3. 启动后端 `:8080`  
+4. 启动前端静态站 `:4173`  
+5. 尝试自动打开浏览器  
 
-### 演示账号
+看到类似「智慧光棚已启动」即成功。
 
-| 用户名 | 角色 | 密码 |
+### 打开页面
+
+```powershell
+Start-Process "http://localhost:4173"
+```
+
+或手动访问：
+
+| 地址 | 用途 |
+|------|------|
+| http://localhost:4173 | **前端（请用这个登录）** |
+| http://localhost:8080 | 后端 API |
+| http://localhost:18083 | EMQX 控制台（`admin` / `public`） |
+
+### 登录账号（复制用户名密码即可）
+
+| 用户名 | 密码 | 角色 |
 |--------|------|------|
-| `admin` | 系统管理员 | `admin123` |
-| `changzhang` | 场长 | `demo123` |
-| `nongyi` | 农艺师 | `demo123` |
-| `zhongzhi` | 种植员 | `demo123` |
-| `yunwei` | 设备运维 | `demo123` |
-| `xueyuan` | 学员 | `demo123` |
+| `admin` | `admin123` | 系统管理员 |
+| `changzhang` | `demo123` | 场长 |
+| `nongyi` | `demo123` | 农艺师 |
+| `zhongzhi` | `demo123` | 种植员 |
+| `yunwei` | `demo123` | 设备运维 |
+| `xueyuan` | `demo123` | 学员 |
 
-## 停止
+建议先：`admin` / `admin123` → 进入「场务光场」。
+
+---
+
+## 第 6 步 · 快速自检（可选但推荐）
+
+```powershell
+docker ps
+Invoke-RestMethod http://localhost:8080/users/login -Method POST -ContentType "application/json" -Body '{"username":"admin","password":"admin123"}'
+```
+
+- `docker ps` 中应有 `streetlight-pg`、`streetlight-emqx`  
+- 登录接口返回里 `code` 应为 `200`
+
+---
+
+## 第 7 步 · 停止服务
+
+先停本机前后端：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Stop-Guangpeng.ps1
 ```
 
-如需连数据库一起关掉：
+若要连数据库容器一起关（仍在发布包目录下）：
 
 ```powershell
 cd infra
 docker compose down
+cd ..
 ```
 
-清空数据卷（慎用）：
+---
 
-```powershell
-docker compose down -v
-```
+## 附录 A · 强制清空并重建数据库
 
-## 强制重建数据库
-
-默认若已有 `gh_*` 表则跳过初始化。需要洗库时：
+会删除当前库数据，仅在需要「洗库重来」时使用：
 
 ```powershell
 $env:GUANGPENG_FORCE_INIT = "1"
 powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
 ```
 
-## 验收清单（提交/答辩）
+---
 
-1. Docker 中 `streetlight-pg`、`streetlight-emqx` 为 Up  
-2. 浏览器打开 :4173，用 `admin` / `admin123` 登录  
-3. 进入「场务光场」，可见 3D 棚体与光场热力  
-4. 切换 `nongyi` / `zhongzhi`，工单批准与接单按钮不同  
-5. （可选）等待约 2 分钟，日型仿真推进  
+## 附录 B · 常见问题（对着命令修）
 
-## 常见问题
+### 端口被占用
 
-| 现象 | 处理 |
-|------|------|
-| 端口 8080/4173 被占用 | 先跑 `Stop-Guangpeng.ps1`，或关掉旧后端/前端 |
-| `docker ps` 报错 / 引擎未起 | 打开 Docker Desktop，确认 WSL2 正常 |
-| 登录失败 | 看 `.run\backend.log`；确认 `config\application-secret.yml` 密码为 `123456` |
-| 前端空白或接口失败 | 确认后端已起；本包前端固定请求 `localhost:8080` |
-| 想改密钥 / DB 密码 | 编辑 `config\application-secret.yml` 后重启 jar |
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Stop-Guangpeng.ps1
+```
 
-## 版本信息
+仍占用时可查看：
 
-- 产品名：智慧光棚  
+```powershell
+Get-NetTCPConnection -LocalPort 8080,4173 -State Listen
+```
+
+### Docker 没起来
+
+```powershell
+# 打开 Docker Desktop 后重试
+docker ps
+```
+
+### 启动失败看日志
+
+```powershell
+Get-Content .\.run\backend.log -Tail 50
+Get-Content .\.run\frontend.log -Tail 50
+```
+
+### 前端能开但登录失败
+
+确认用的是 **4173** 而不是只开了 8080；并确认第 5 步后端探测成功。
+
+---
+
+## 包内文件说明（一般不用手动碰）
+
+| 文件/目录 | 作用 |
+|-----------|------|
+| `Start-Guangpeng.ps1` | 一键启动 |
+| `Stop-Guangpeng.ps1` | 停止 jar / 前端 |
+| `zhihui-guangpeng.jar` | 后端 |
+| `web-dist/` | 前端页面 |
+| `infra/` | Docker 与 SQL |
+| `config/` | 密钥（首次自动生成 `application-secret.yml`） |
+| `tools/init-db.ps1` | 建库脚本（启动时按需调用） |
+
+---
+
+## 版本
+
+- 产品：**智慧光棚**  
 - 工程 ID：`zhihui-guangpeng`  
-- 发布版本：`{{VERSION}}`  
-- 数据库名（历史兼容）：`smart-street-light`（仅内部连接串，不影响产品名）
+- 本包版本：`{{VERSION}}`
