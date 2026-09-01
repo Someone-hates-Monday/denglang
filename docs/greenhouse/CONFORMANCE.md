@@ -41,7 +41,7 @@
 | D2 | 六演示账号 / UI `can()` | 种子 + 登录卡 + 导航/按钮分权 |
 | E3 | 按角色导航默认首页 | `homePathFor` + `navFor` |
 | P1.1–P1.3 | 角色分权 R1 任务 | 见 §6 P1（已勾） |
-| Agent | 前端 AgriAgent 知识问答 | 悬浮助手 + 本地知识库匹配；读 ZONE-A 实时光；**不**接后端 RAG、**不**控灯 |
+| Agent | 顾问智能体（Could） | 后端编排 + 只读工具 + 薄 RAG；前端 AgriAgent；**不**控灯；见 [AGENT.md](./AGENT.md) |
 
 ---
 

@@ -1,5 +1,5 @@
-# 本地 Docker 联调（与 docker-compose.yml 端口一致）
-# 启动：--spring.profiles.active=local,secret  或  mvn spring-boot:run -Dspring-boot.run.profiles=local,secret
+# Local Docker profiles (ports match docker-compose)
+# Start: --spring.profiles.active=local,secret
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5433/smart-street-light
@@ -9,19 +9,22 @@ mqtt:
   broker-url: tcp://127.0.0.1:1883
   client-id: smart-light-server-local
 
-# 模拟灯：优先用 Docker fleet-sim（mqtt-simulate-fleet.ps1）。
-# 仅在不跑 fleet 时改为 true，由 DemoMockKeepaliveTask 兜底（勿与 fleet 双开）。
 streetlight:
   demo:
     mock-keepalive: false
 
-# 智慧光棚：一天压缩约 2 分钟（120s）；250ms tick → 约 3 仿真分钟/步（浮点推进，曲线密采样）
 greenhouse:
   sim:
     enabled: true
     interval-ms: 250
     day-compress-sec: 120
-    # 进程内仿真默认不外发 telemetry，避免 broker 回环；抓包演示可改 true
     publish-mqtt-telemetry: false
   control:
     command-timeout-sec: 30
+
+llm:
+  base-url: https://api.deepseek.com/v1
+  model: deepseek-chat
+  temperature: 0.3
+  max-tokens: 2048
+  top-k: 4

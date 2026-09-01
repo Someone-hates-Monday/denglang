@@ -72,8 +72,27 @@
 | POST | `/greenhouse/reports/{id}/submit` | 提交草稿 |
 | POST | `/greenhouse/reports/{id}/review` | 批阅 `{ note, approve }` |
 | POST | `/greenhouse/sim/tick` | 手动推进仿真（调试） |
+| POST | `/greenhouse/agent/chat` | 顾问智能体问答（只读；见 [AGENT.md](./AGENT.md)） |
 
 前端 Vite 已代理 `/greenhouse` → `:8080`。
+
+### agent/chat
+
+```
+POST /greenhouse/agent/chat
+Header: token
+Body: { "sessionId"?: string, "message": string, "zoneId"?: string }
+Resp.data: {
+  sessionId: string,
+  reply: string,
+  toolsUsed: string[],
+  citations: [{ title, source }],
+  snapshot?: object,
+  mode: "llm" | "template" | "knowledge"
+}
+```
+
+只读：不下发调光/遮阳/工单状态变更。
 
 ### effective-light 关键字段（前端依赖）
 

@@ -14,26 +14,32 @@ import org.springframework.web.client.RestTemplate;
 @ConfigurationProperties(prefix = "llm")
 public class LlmConfig {
 
-    /** OpenAI 兼容 API Key */
+    /** OpenAI 兼容 API Key（DeepSeek / OpenAI 等） */
     private String apiKey;
 
-    /** OpenAI 兼容 API 地址（如 https://api.openai.com） */
-    private String baseUrl;
+    /** OpenAI 兼容 API 根地址（建议含 /v1，如 https://api.deepseek.com/v1） */
+    private String baseUrl = "https://api.deepseek.com/v1";
 
-    /** 模型名称（如 gpt-4o-mini, deepseek-chat 等） */
-    private String model;
+    /** 模型名称（DeepSeek：deepseek-chat） */
+    private String model = "deepseek-chat";
 
-    /** Embedding API Key（如使用 Jina AI） */
+    /** 生成温度 */
+    private double temperature = 0.3;
+
+    /** 单次回答最大 token（DeepSeek chat 常用上限内取值） */
+    private int maxTokens = 2048;
+
+    /** Embedding API Key（当前光棚顾问未使用，可留空） */
     private String embeddingApiKey;
 
-    /** Embedding API 地址（如 https://api.jina.ai/v1） */
+    /** Embedding API 地址 */
     private String embeddingBaseUrl;
 
-    /** Embedding 模型名称（如 jina-embeddings-v2-base-zh） */
+    /** Embedding 模型名称 */
     private String embeddingModel;
 
-    /** RAG 检索返回的相似文档数量 */
-    private int topK = 3;
+    /** 薄 RAG 检索返回条数 */
+    private int topK = 4;
 
     @Bean
     public RestTemplate restTemplate() {

@@ -170,7 +170,7 @@ function draw() {
     return
   }
 
-  let legendItems: { c: string; t: string }[] = []
+  let legendItems: { c: string; t: string; dash?: number[]; dashed?: boolean }[] = []
 
   if (props.mode === 'climate') {
     const series = anchor
@@ -195,7 +195,7 @@ function draw() {
     for (const layer of layers) {
       strokeLayer(ctx, densifySeries(layer.series), layer, xAt, y)
     }
-    legendItems = layers.map((l) => ({ c: l.color, t: l.label + (l.dashed ? ' ···' : '') }))
+    legendItems = layers.map((l) => ({ c: l.color, t: l.label, dash: l.dash, dashed: l.dashed }))
   } else if (props.mode === 'gap') {
     const allGaps = layers.flatMap((l) => densifySeries(l.series).map((p) => l.getValue(p)))
     const ext = Math.max(30, ...allGaps.map(Math.abs), 1) * 1.15
@@ -214,7 +214,7 @@ function draw() {
     ctx.font = '11px system-ui, sans-serif'
     ctx.fillText('↑ 高于目标', pad.l + plotW + 2, pad.t + 12)
     ctx.fillText('↓ 低于目标', pad.l + plotW + 2, pad.t + plotH - 4)
-    legendItems = layers.map((l) => ({ c: l.color, t: l.label }))
+    legendItems = layers.map((l) => ({ c: l.color, t: l.label, dash: l.dash, dashed: l.dashed }))
   } else {
     const drawLayers =
       layers.length > 0
@@ -284,7 +284,7 @@ function draw() {
 
     legendItems = [
       ...(props.showOutdoor ? [{ c: '#aeaeb2', t: '室外 PAR' }] : []),
-      ...drawLayers.map((l) => ({ c: l.color, t: l.label })),
+      ...drawLayers.map((l) => ({ c: l.color, t: l.label, dash: l.dash, dashed: l.dashed })),
       { c: '#af52de', t: '目标带' },
     ]
   }
@@ -317,7 +317,14 @@ function strokeLayer(
     layer.color,
     layer.width ?? 2,
     layer.dashed,
+    layer.dash,
   )
+}
+
+function resolveDash(dashed?: boolean, dash?: number[]): number[] {
+  if (dash && dash.length) return dash
+  if (dashed) return [6, 4]
+  return []
 }
 
 function strokeLine(
@@ -328,13 +335,14 @@ function strokeLine(
   color: string,
   width: number,
   dashed = false,
+  dash?: number[],
 ) {
   if (series.length < 2) return
   ctx.strokeStyle = color
   ctx.lineWidth = width
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  if (dashed) ctx.setLineDash([6, 4])
+  ctx.setLineDash(resolveDash(dashed, dash))
 
   let started = false
   for (let i = 0; i < series.length; i++) {
@@ -367,24 +375,33 @@ function legend(
   x0: number,
   maxX: number,
   y: number,
-  items: { c: string; t: string }[],
+  items: { c: string; t: string; dash?: number[]; dashed?: boolean }[],
 ) {
   if (!items.length) return
   const rowH = 17
+  const sw = 22
   let x = x0
   let row = 0
   ctx.font = '12px "Segoe UI", system-ui, sans-serif'
   for (const it of items) {
-    const w = 26 + ctx.measureText(it.t).width
+    const w = sw + 8 + ctx.measureText(it.t).width
     if (x + w > maxX - 8 && x > x0) {
       row++
       x = x0
     }
     const yy = y + row * rowH
-    ctx.fillStyle = it.c
-    ctx.fillRect(x, yy - 9, 11, 11)
+    const midY = yy - 3
+    ctx.strokeStyle = it.c
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    ctx.setLineDash(resolveDash(it.dashed, it.dash))
+    ctx.beginPath()
+    ctx.moveTo(x, midY)
+    ctx.lineTo(x + sw, midY)
+    ctx.stroke()
+    ctx.setLineDash([])
     ctx.fillStyle = '#6e6e73'
-    ctx.fillText(it.t, x + 15, yy)
+    ctx.fillText(it.t, x + sw + 6, yy)
     x += w
   }
 }

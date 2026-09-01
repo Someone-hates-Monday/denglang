@@ -1,7 +1,7 @@
 import type { DaySeriesPoint, GhEffectiveLight } from '../api/greenhouse'
 import { BEDS } from './cropCatalog'
 
-export type ChartScope = 'bay' | 'zone' | 'beds' | 'sensors' | 'control'
+export type ChartScope = 'bay' | 'zone' | 'beds' | 'sensors'
 
 export type CurveLayerDef = {
   id: string
@@ -11,6 +11,8 @@ export type CurveLayerDef = {
   getValue: (p: DaySeriesPoint) => number
   width?: number
   dashed?: boolean
+  /** 自定义虚线；与 dashed 同时存在时优先 dash */
+  dash?: number[]
 }
 
 export type RegionRow = {
@@ -30,11 +32,37 @@ export type RegionRow = {
 }
 
 const ZONE_COLORS: Record<string, string> = {
-  'ZONE-A': '#0071e3',
-  'ZONE-B': '#34c759',
+  'ZONE-A': '#1d4ed8',
+  'ZONE-B': '#c2410c',
 }
 
-const BED_COLORS = ['#0071e3', '#5ac8fa', '#5856d6', '#34c759', '#30d158', '#248a3d']
+export { ZONE_COLORS }
+
+/**
+ * 分床/测点：色相尽量正交（红/蓝/绿/紫/橙/棕），再配不同虚线，避免图例「一片相近」。
+ * 顺序对应 BEDS：西南→西中→西北→东南→东中→东北
+ */
+const BED_COLORS = ['#dc2626', '#2563eb', '#16a34a', '#7c3aed', '#ea580c', '#92400e']
+
+/** 测点 5 色：红蓝绿橙紫，与分床同系但足够拉开 */
+const SENSOR_COLORS = ['#dc2626', '#2563eb', '#16a34a', '#ea580c', '#7c3aed']
+
+const BED_DASHES: (number[] | undefined)[] = [
+  undefined,
+  [8, 4],
+  [3, 3],
+  [10, 3, 2, 3],
+  [2, 2.5],
+  [9, 3, 2, 3, 2, 3],
+]
+
+const SENSOR_DASHES: (number[] | undefined)[] = [
+  undefined,
+  [8, 4],
+  [3, 3],
+  [10, 3, 2, 3],
+  [2, 2.5],
+]
 
 /** 测点与床对应（layout v1.5：L0 每床 5×PAR；中/北床 L1 另 5×PAR） */
 export const SENSORS_BY_BED: Record<string, string[]> = {
@@ -95,24 +123,19 @@ function pointAt(series: DaySeriesPoint[], minute: number): DaySeriesPoint | und
   return best
 }
 
-function bayAvgSeries(a: DaySeriesPoint[], b: DaySeriesPoint[]): DaySeriesPoint[] {
-  const byMin = new Map<number, DaySeriesPoint>()
-  for (const p of a) byMin.set(Math.round(p.minuteOfDay), p)
-  const out: DaySeriesPoint[] = []
-  for (const pb of b) {
-    const m = Math.round(pb.minuteOfDay)
-    const pa = byMin.get(m)
-    if (!pa) continue
-    out.push({
-      ...pa,
-      controlledPpfd: (pa.controlledPpfd + pb.controlledPpfd) / 2,
-      naturalPpfd: (pa.naturalPpfd + pb.naturalPpfd) / 2,
-      ledPpfd: (pa.ledPpfd + pb.ledPpfd) / 2,
-      gapPpfd:
-        pa.gapPpfd != null && pb.gapPpfd != null ? (pa.gapPpfd + pb.gapPpfd) / 2 : pa.gapPpfd,
-    })
+/** 分床曲线：优先该床 L0 测点均值（与区有效光同口径），回退 bedPpfd */
+export function bedSeriesPpfd(p: DaySeriesPoint, bedId: string): number {
+  const sns = SENSORS_BY_BED[bedId]
+  if (sns?.length && p.sensorPpfd) {
+    const vals = sns
+      .map((sn) => p.sensorPpfd?.[sn])
+      .filter((v): v is number => v != null && Number.isFinite(v))
+    if (vals.length) {
+      return vals.reduce((a, b) => a + b, 0) / vals.length
+    }
   }
-  return out.length ? out : a.length >= b.length ? a : b
+  const v = p.bedPpfd?.[bedId]
+  return v != null && Number.isFinite(v) ? v : Number.NaN
 }
 
 export function buildRegionRows(lights: Record<string, GhEffectiveLight>): RegionRow[] {
@@ -206,60 +229,13 @@ export function buildChartLayers(
   const focus = lights[focusZoneId] ?? a ?? b
   const anchor = focus?.series ?? a?.series ?? b?.series ?? []
 
-  if (scope === 'control') {
-    const layers: CurveLayerDef[] = []
-    for (const z of ['ZONE-A', 'ZONE-B'] as const) {
-      const el = lights[z]
-      if (!el?.series?.length) continue
-      layers.push({
-        id: `${z}-shade`,
-        label: `${zoneShortLabel(z, el.name)} 遮阳%`,
-        color: ZONE_COLORS[z],
-        series: el.series,
-        getValue: (p) => p.shadeOpenPercent,
-        width: 2,
-      })
-      layers.push({
-        id: `${z}-dim`,
-        label: `${zoneShortLabel(z, el.name)} 补光%`,
-        color: ZONE_COLORS[z],
-        series: el.series,
-        getValue: (p) => p.avgDimmingPercent,
-        width: 1.5,
-        dashed: true,
-      })
-    }
-    return { anchor: a?.series ?? anchor, layers }
-  }
-
   if (scope === 'bay') {
     const layers: CurveLayerDef[] = []
-    if (a?.series?.length) {
-      layers.push({
-        id: 'ZONE-A-natural',
-        label: '西半跨 调整前',
-        color: '#8ec5ff',
-        series: a.series,
-        getValue: (p) => p.naturalPpfd,
-        width: 1.5,
-        dashed: true,
-      })
-    }
-    if (b?.series?.length) {
-      layers.push({
-        id: 'ZONE-B-natural',
-        label: '东半跨 调整前',
-        color: '#8ce0a0',
-        series: b.series,
-        getValue: (p) => p.naturalPpfd,
-        width: 1.5,
-        dashed: true,
-      })
-    }
+    // 只保留调控后有效光：直接对照目标带判断东西半跨是否合理
     if (a?.series?.length) {
       layers.push({
         id: 'ZONE-A',
-        label: '西半跨 调控后',
+        label: '西半跨 有效光',
         color: ZONE_COLORS['ZONE-A'],
         series: a.series,
         getValue: (p) => p.controlledPpfd,
@@ -269,22 +245,12 @@ export function buildChartLayers(
     if (b?.series?.length) {
       layers.push({
         id: 'ZONE-B',
-        label: '东半跨 调控后',
+        label: '东半跨 有效光',
         color: ZONE_COLORS['ZONE-B'],
         series: b.series,
         getValue: (p) => p.controlledPpfd,
         width: 2.5,
-      })
-    }
-    if (a?.series?.length && b?.series?.length) {
-      layers.push({
-        id: 'BAY-AVG',
-        label: '整跨平均(调控后)',
-        color: '#5856d6',
-        series: bayAvgSeries(a.series, b.series),
-        getValue: (p) => p.controlledPpfd,
-        width: 2,
-        dashed: true,
+        dash: [7, 4],
       })
     }
     return { anchor: a?.series ?? anchor, layers }
@@ -300,12 +266,9 @@ export function buildChartLayers(
         label: bedShortLabel(bed.bedId),
         color: BED_COLORS[i % BED_COLORS.length],
         series: el.series,
-        getValue: (p) => {
-          const v = p.bedPpfd?.[bed.bedId]
-          // 缺分床采样时不回退到区均值，避免六床曲线叠成一根
-          return v != null && Number.isFinite(v) ? v : Number.NaN
-        },
-        width: bed.bedId === focusBedId ? 2.8 : 1.75,
+        getValue: (p) => bedSeriesPpfd(p, bed.bedId),
+        width: bed.bedId === focusBedId ? 2.8 : 2,
+        dash: BED_DASHES[i % BED_DASHES.length],
       })
     })
     return { anchor, layers }
@@ -319,56 +282,39 @@ export function buildChartLayers(
     const layers: CurveLayerDef[] = sns.map((sn, i) => ({
       id: sn,
       label: sn.replace('PAR-', '').replace('ZONE-', ''),
-      color: ['#0071e3', '#5ac8fa', '#5856d6', '#34c759', '#ff9500'][i] ?? '#86868b',
+      color: SENSOR_COLORS[i] ?? '#86868b',
       series: el?.series ?? [],
       getValue: (p) => {
         const v = p.sensorPpfd?.[sn]
         return v != null && Number.isFinite(v) ? v : Number.NaN
       },
-      width: 1.75,
+      width: 2,
+      dash: SENSOR_DASHES[i % SENSOR_DASHES.length],
     }))
     return { anchor: el?.series ?? anchor, layers }
   }
 
-  // zone — 当前半跨 + 缺口虚线
+  // zone — 有效光 + 无调控自然光对照（目标带由图表绘制）
   const el = focus
   const layers: CurveLayerDef[] = []
   if (el?.series?.length) {
     layers.push({
       id: 'controlled',
-      label: '调控后 PAR',
-      color: ZONE_COLORS[focusZoneId] ?? '#0071e3',
+      label: '有效光（调控后）',
+      color: ZONE_COLORS[focusZoneId] ?? '#1d4ed8',
       series: el.series,
       getValue: (p) => p.controlledPpfd,
       width: 2.5,
     })
     layers.push({
       id: 'natural',
-      label: '棚内自然',
-      color: '#34c759',
+      label: '仅自然光（对照）',
+      color: '#8e8e93',
       series: el.series,
       getValue: (p) => p.naturalPpfd,
-      width: 1.75,
+      width: 1.5,
+      dashed: true,
     })
-    layers.push({
-      id: 'led',
-      label: '补光贡献',
-      color: '#ff9500',
-      series: el.series,
-      getValue: (p) => p.ledPpfd,
-      width: 1.25,
-    })
-    if (el.series.some((p) => p.gapPpfd != null)) {
-      layers.push({
-        id: 'gap',
-        label: '距目标中值 Δ',
-        color: '#ff3b30',
-        series: el.series,
-        getValue: (p) => p.gapPpfd ?? 0,
-        width: 1.5,
-        dashed: true,
-      })
-    }
   }
   return { anchor, layers }
 }

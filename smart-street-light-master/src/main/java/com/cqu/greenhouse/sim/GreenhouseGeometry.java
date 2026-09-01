@@ -291,4 +291,15 @@ public final class GreenhouseGeometry {
             return null;
         }
     }
+
+    /**
+     * PAR 测点所属 L0 床（与 {@link #lampBedId} 同位编号）。
+     * L1 测点返回 null，避免把上层光强并入 L0 分床均值。
+     */
+    public static String parL0BedId(String deviceSn) {
+        if (deviceSn == null || !deviceSn.startsWith("PAR-") || deviceSn.contains("L1")) {
+            return null;
+        }
+        return lampBedId(deviceSn.replace("PAR-", "LAMP-"));
+    }
 }

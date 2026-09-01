@@ -142,14 +142,14 @@ public final class LightFieldModel {
             }
         }
 
-        Map<String, BedLightStat> bedStats = new LinkedHashMap<>();
+        Map<String, BedLightStat> bedStatsGrid = new LinkedHashMap<>();
         for (Map.Entry<String, double[]> e : bedAcc.entrySet()) {
             double[] a = e.getValue();
             int n = (int) a[3];
             if (n <= 0) {
-                bedStats.put(e.getKey(), new BedLightStat(e.getKey(), 0, 0, 0, 0));
+                bedStatsGrid.put(e.getKey(), new BedLightStat(e.getKey(), 0, 0, 0, 0));
             } else {
-                bedStats.put(e.getKey(), new BedLightStat(
+                bedStatsGrid.put(e.getKey(), new BedLightStat(
                         e.getKey(), a[0] / n, a[1] == Double.POSITIVE_INFINITY ? 0 : a[1], a[2] / n, n));
             }
         }
@@ -158,6 +158,10 @@ public final class LightFieldModel {
         List<Double> sensorValues = new ArrayList<>();
         List<Double> sensorLed = new ArrayList<>();
         List<Double> sensorSun = new ArrayList<>();
+        Map<String, double[]> bedSensorAcc = new LinkedHashMap<>(); // sumPpfd, sumLed, sumSun, count
+        for (String bedId : GreenhouseGeometry.l0BedIds(zoneId)) {
+            bedSensorAcc.put(bedId, new double[]{0, 0, 0, 0});
+        }
         for (GhDevice s : sensors) {
             double x = s.getPosX() != null ? s.getPosX().doubleValue() : length / 2;
             double y = s.getPosY() != null ? s.getPosY().doubleValue() : width / 2;
@@ -173,6 +177,39 @@ public final class LightFieldModel {
             sensorValues.add(ppfd);
             sensorLed.add(led);
             sensorSun.add(sunIn);
+            String bedId = GreenhouseGeometry.parL0BedId(s.getDeviceSn());
+            if (bedId != null && bedSensorAcc.containsKey(bedId)) {
+                double[] a = bedSensorAcc.get(bedId);
+                a[0] += ppfd;
+                a[1] += led;
+                a[2] += sunIn;
+                a[3] += 1;
+            }
+        }
+
+        // 分床与区有效光统一「测点口径」：有 L0 测点时覆盖网格面平均（床缘暗区会系统性偏低）
+        Map<String, BedLightStat> bedStats = new LinkedHashMap<>();
+        for (String bedId : GreenhouseGeometry.l0BedIds(zoneId)) {
+            double[] sen = bedSensorAcc.get(bedId);
+            if (sen != null && sen[3] > 0) {
+                int n = (int) sen[3];
+                double avg = sen[0] / n;
+                double avgLed = sen[1] / n;
+                double min = Double.POSITIVE_INFINITY;
+                for (GhDevice s : sensors) {
+                    if (!bedId.equals(GreenhouseGeometry.parL0BedId(s.getDeviceSn()))) {
+                        continue;
+                    }
+                    Double v = sensorPpfd.get(s.getDeviceSn());
+                    if (v != null) {
+                        min = Math.min(min, v);
+                    }
+                }
+                bedStats.put(bedId, new BedLightStat(
+                        bedId, avg, min == Double.POSITIVE_INFINITY ? 0 : min, avgLed, n));
+            } else {
+                bedStats.put(bedId, bedStatsGrid.getOrDefault(bedId, new BedLightStat(bedId, 0, 0, 0, 0)));
+            }
         }
 
         double effective;

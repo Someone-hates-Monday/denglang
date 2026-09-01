@@ -357,24 +357,27 @@ async function onLogout() {
 
 .toast {
   position: fixed;
+  top: calc(var(--space-4) + 56px);
   right: var(--space-6);
-  bottom: var(--space-6);
-  z-index: 50;
+  bottom: auto;
+  left: auto;
+  z-index: 95;
   display: flex;
   gap: var(--space-3);
   align-items: center;
-  max-width: 380px;
+  max-width: min(380px, calc(100vw - 2 * var(--space-6)));
   padding: var(--space-4);
   background: var(--panel);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
   animation: toast-in var(--duration-slow) var(--ease-spring) both;
 }
 
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.96);
+    transform: translateY(-10px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -483,6 +486,13 @@ async function onLogout() {
 
   .content {
     padding: 0 var(--page-pad) var(--space-5);
+  }
+
+  .toast {
+    top: var(--space-3);
+    right: var(--space-3);
+    left: var(--space-3);
+    max-width: none;
   }
 }
 </style>

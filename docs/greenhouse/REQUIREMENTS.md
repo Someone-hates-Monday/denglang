@@ -56,7 +56,7 @@
 | 设备 | 设备档案、在线状态、标定/调试（审计） | 运维 |
 | 控制日志 | 指令执行状态（SUCCESS/TIMEOUT/FAIL） | 全部 |
 | 报告 | 日光照报告、产量-能耗、设备健康、实训 | 场长/农艺/运维/学员 |
-| 农艺助手 | 悬浮问答：作物知识/光环境/角色/工单/接入 | 全部 |
+| 农艺助手 | `POST /greenhouse/agent/chat`：工具汇总棚况 + 薄 RAG；前端悬浮对话 | 全部 |
 
 ---
 
@@ -131,7 +131,7 @@
 | POST | /greenhouse/work-orders/{id}/complete | 种植员回填完成 | 种植员 |
 | POST | /greenhouse/sim/reset-day | 重跑今日仿真 | 系统/农艺 |
 | GET | /devices · /control-logs · /alarm-logs | 设备/日志/告警（对接 gh_*） | 按角色 |
-| POST | /knowledge-chunks/rag | 农艺助手问答 | 登录 |
+| POST | /greenhouse/agent/chat | 顾问智能体（工具+薄 RAG，只读） | 登录 |
 
 ### 5.2 MQTT（EMQX :1883）
 

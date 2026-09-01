@@ -251,6 +251,17 @@ export type GhEffectiveLight = {
   series?: DaySeriesPoint[]
 }
 
+export type GhAgentCitation = { title: string; source: string }
+
+export type GhAgentChatResult = {
+  sessionId: string
+  reply: string
+  toolsUsed?: string[]
+  citations?: GhAgentCitation[]
+  snapshot?: Record<string, unknown>
+  mode?: 'llm' | 'template' | 'knowledge' | string
+}
+
 export const greenhouseApi = {
   zones: () => http<GhZone[]>('/greenhouse/zones'),
   effectiveLight: (zoneId: string) => http<GhEffectiveLight>(`/greenhouse/zones/${zoneId}/effective-light`),
@@ -333,4 +344,9 @@ export const greenhouseApi = {
       body: JSON.stringify({ note, approve }),
     }),
   resetDay: () => http<string>('/greenhouse/sim/reset-day', { method: 'POST' }),
+  agentChat: (body: { sessionId?: string; message: string; zoneId?: string }) =>
+    http<GhAgentChatResult>('/greenhouse/agent/chat', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }

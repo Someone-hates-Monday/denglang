@@ -31,6 +31,7 @@
 | 光场 / 配方 / MQTT 契约 | [`docs/greenhouse/contracts/`](./docs/greenhouse/contracts/) |
 | 本地启动 | [`docs/greenhouse/IMPLEMENT.md`](./docs/greenhouse/IMPLEMENT.md) |
 | 文档总索引 | [`docs/greenhouse/README.md`](./docs/greenhouse/README.md) |
+| 顾问智能体 | [`docs/greenhouse/AGENT.md`](./docs/greenhouse/AGENT.md) |
 
 ---
 

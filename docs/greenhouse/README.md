@@ -16,6 +16,7 @@
 | [GAP-ASSESSMENT.md](./GAP-ASSESSMENT.md) | **成果 vs 场景 vs 发布差距** + 下一步优先级 |
 | [RBAC-ROLES.md](./RBAC-ROLES.md) | 角色权限与协同（交 B 轨） |
 | [INTEGRATION.md](./INTEGRATION.md) | 对接（MQTT/HTTP） |
+| [AGENT.md](./AGENT.md) | **顾问智能体**：只读工具 + 薄 RAG + 对话上下文 |
 | [SUBMIT.md](./SUBMIT.md) | 提交与验收清单 |
 | [SUBMIT-PLAN.md](./SUBMIT-PLAN.md) | **提交清单盘点 + 六人分工**（对应课程提交清单） |
 | [REQUIREMENTS.md](./REQUIREMENTS.md) | **需求清单**（定位/功能/规则/阈值分级/接口清单） |

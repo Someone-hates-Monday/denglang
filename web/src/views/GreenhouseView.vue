@@ -22,6 +22,8 @@ import { RouterLink } from 'vue-router'
 import {
   buildChartLayers,
   buildRegionRows,
+  bedSeriesPpfd,
+  ZONE_COLORS,
   type ChartScope,
   type RegionRow,
 } from '../scene/dayCurveLayers'
@@ -216,8 +218,7 @@ const chartBundle = computed(() =>
   buildChartLayers(chartScope.value, lights.value, zoneId.value, chartFocusBedId.value),
 )
 
-const controlLayers = computed(() => buildChartLayers('control', lights.value, zoneId.value).layers)
-
+/** 相对目标中值的偏差：正=偏高，负=偏低，近 0=合理 */
 const gapLayers = computed(() => {
   if (chartScope.value === 'bay') {
     const layers: typeof chartBundle.value.layers = []
@@ -226,21 +227,12 @@ const gapLayers = computed(() => {
       if (!el?.series?.length) continue
       layers.push({
         id: `${z}-gap`,
-        label: `${z === 'ZONE-A' ? '西半跨' : '东半跨'} 缺口 Δ`,
-        color: z === 'ZONE-A' ? '#0071e3' : '#34c759',
+        label: `${z === 'ZONE-A' ? '西半跨' : '东半跨'} Δ`,
+        color: ZONE_COLORS[z] ?? '#1d4ed8',
         series: el.series,
         getValue: (p: DaySeriesPoint) => p.gapPpfd ?? 0,
         width: 2,
-      })
-    }
-    const avg = buildChartLayers('bay', lights.value, zoneId.value).layers.find((l) => l.id === 'BAY-AVG')
-    if (avg) {
-      layers.push({
-        ...avg,
-        id: 'BAY-gap',
-        label: '整跨平均缺口',
-        getValue: (p: DaySeriesPoint) => p.gapPpfd ?? 0,
-        dashed: true,
+        dash: z === 'ZONE-B' ? [7, 4] : undefined,
       })
     }
     return layers
@@ -249,21 +241,44 @@ const gapLayers = computed(() => {
     return chartBundle.value.layers.map((l) => ({
       ...l,
       getValue: (p: DaySeriesPoint) => {
-        const v = p.bedPpfd?.[l.id]
+        const v = bedSeriesPpfd(p, l.id)
+        if (v == null || !Number.isFinite(v)) return Number.NaN
         const mid = p.targetMid ?? ((p.targetPpfdMin ?? 0) + (p.targetPpfdMax ?? 0)) / 2
-        return v != null ? v - mid : 0
+        return v - mid
       },
     }))
   }
-  return buildChartLayers('zone', lights.value, zoneId.value).layers.filter((l) => l.id === 'gap')
+  if (chartScope.value === 'sensors') {
+    return chartBundle.value.layers.map((l) => ({
+      ...l,
+      getValue: (p: DaySeriesPoint) => {
+        const v = p.sensorPpfd?.[l.id]
+        if (v == null || !Number.isFinite(v)) return Number.NaN
+        const mid = p.targetMid ?? ((p.targetPpfdMin ?? 0) + (p.targetPpfdMax ?? 0)) / 2
+        return v - mid
+      },
+    }))
+  }
+  // zone
+  const el = lights.value[zoneId.value]
+  if (!el?.series?.length) return []
+  return [
+    {
+      id: 'gap',
+      label: '距目标中值 Δ',
+      color: '#ff3b30',
+      series: el.series,
+      getValue: (p: DaySeriesPoint) => p.gapPpfd ?? 0,
+      width: 2,
+    },
+  ]
 })
 
 const chartTitles: Record<ChartScope, string> = {
-  bay: '整跨 · 东西半跨 PAR 对比',
-  zone: '当前半跨 · 自然 / 补光 / 调控',
-  beds: '六床分床 PAR',
-  sensors: '单床三测点 PAR',
-  control: '分区遮阳 / 补光策略',
+  bay: '整跨 · 东西半跨有效光 vs 目标带',
+  zone: '半跨 · 有效光 vs 目标带',
+  beds: '分床 · 各床有效光 vs 目标带',
+  sensors: '测点 · 单床 PAR 均匀性',
 }
 
 function onRegionSelect(row: RegionRow) {
@@ -917,8 +932,8 @@ onUnmounted(() => {
 
         <div class="side-body charts-body" v-else-if="lowerTab === 'charts'">
           <p class="side-lead">
-            AUTO：贴配方光带 · 过亮遮光、光周期内欠光补光。虚线=调整前，实线=调控后。
-            色带为目标瞬时 PPFD 区间（非假曲线）。
+            只看「有效光是否落在目标带」：色带=配方瞬时目标；曲线贴带内即合理。下方 Δ 图近 0
+            为合适，正偏高、负偏低。分床与半跨均用 PAR 测点均值（同一口径）。
           </p>
           <div class="ui-card chart-wrap overview-wrap">
             <RegionLightOverview
@@ -935,9 +950,8 @@ onUnmounted(() => {
                   [
                     ['bay', '整跨'],
                     ['zone', '半跨'],
-                    ['beds', '六床'],
+                    ['beds', '分床'],
                     ['sensors', '测点'],
-                    ['control', '控光'],
                   ] as const
                 )"
                 :key="s[0]"
@@ -949,7 +963,7 @@ onUnmounted(() => {
                 {{ s[1] }}
               </button>
             </div>
-            <label v-if="chartScope === 'zone' || chartScope === 'control'" class="field sensor-pick">
+            <label v-if="chartScope === 'zone'" class="field sensor-pick">
               <span>半跨</span>
               <select v-model="zoneId" class="ui-select">
                 <option v-for="z in zones" :key="z.zoneId" :value="z.zoneId">{{ z.name }}</option>
@@ -969,49 +983,22 @@ onUnmounted(() => {
             </label>
           </div>
           <div class="charts-stack">
-            <div class="ui-card chart-wrap" v-if="chartScope !== 'control'">
+            <div class="ui-card chart-wrap">
               <DayCurvesChart
                 :title="chartTitles[chartScope]"
                 mode="light"
                 :anchor-series="chartBundle.anchor"
                 :layers="chartBundle.layers"
                 :minute-of-day="minuteOfDay"
-                :show-outdoor="chartScope === 'zone'"
+                :show-outdoor="false"
               />
             </div>
-            <div class="ui-card chart-wrap" v-else>
+            <div class="ui-card chart-wrap" v-if="gapLayers.length">
               <DayCurvesChart
-                :title="chartTitles.control"
-                mode="control"
-                :anchor-series="chartBundle.anchor"
-                :layers="controlLayers"
-                :minute-of-day="minuteOfDay"
-              />
-            </div>
-            <div class="ui-card chart-wrap" v-if="chartScope !== 'control' && gapLayers.length">
-              <DayCurvesChart
-                title="距理想目标带偏差（ΔPAR）"
+                title="相对目标中值偏差 Δ（近 0 = 光照合理）"
                 mode="gap"
                 :anchor-series="chartBundle.anchor"
                 :layers="gapLayers"
-                :minute-of-day="minuteOfDay"
-              />
-            </div>
-            <div class="ui-card chart-wrap" v-if="chartScope !== 'control'">
-              <DayCurvesChart
-                title="分区遮阳 % · 补光 %"
-                mode="control"
-                :anchor-series="chartBundle.anchor"
-                :layers="controlLayers"
-                :minute-of-day="minuteOfDay"
-              />
-            </div>
-            <div class="ui-card chart-wrap">
-              <DayCurvesChart
-                title="湿度 / 温度（当前半跨）"
-                mode="climate"
-                :anchor-series="chartBundle.anchor"
-                :series="light?.series"
                 :minute-of-day="minuteOfDay"
               />
             </div>

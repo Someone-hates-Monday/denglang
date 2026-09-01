@@ -15,7 +15,8 @@ $Files = @(
   "V20260831_single_crop_dendrobium.sql",
   "V20260831_rbac_roles.sql",
   "V20260831_gh_alarms.sql",
-  "V20260831_gh_reports.sql"
+  "V20260831_gh_reports.sql",
+  "V20260901_gh_knowledge_chunks.sql"
 )
 
 if (-not (docker ps --filter name=streetlight-pg --format "{{.Names}}")) {

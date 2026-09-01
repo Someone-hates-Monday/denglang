@@ -28,3 +28,11 @@ logging:
 mqtt:
   broker-url: tcp://10.59.47.188:1883
   client-id: smart-light-server
+
+# 顾问智能体 LLM（默认 DeepSeek）；api-key 只写在 application-secret.yml，此处勿放空串覆盖
+llm:
+  base-url: https://api.deepseek.com/v1
+  model: deepseek-chat
+  temperature: 0.3
+  max-tokens: 2048
+  top-k: 4
