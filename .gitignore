@@ -20,3 +20,8 @@ firmware/bearpi-hm_nano/
 **/.env
 **/.env.*
 !**/.env.example
+
+# --- local release binaries (use GitHub Releases for zip) ---
+/release/**
+!/release/README.md
+*.zip
