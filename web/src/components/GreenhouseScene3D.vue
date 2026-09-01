@@ -5,7 +5,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { GhEffectiveLight } from '../api/greenhouse'
 import {
   BEDS,
+  bedClusterLabelY,
   bedHasL1Tier,
+  bedLabelAnchor,
   cropLabel,
   sampleBedPpfd,
   type CropKey,
@@ -180,6 +182,8 @@ type CropHover = {
 const hoverCrop = ref<CropHover | null>(null)
 const tooltipPos = ref({ x: 0, y: 0 })
 let cropHitRoots: THREE.Object3D[] = []
+/** 作物床位招牌：远距聚合时隐藏，避免与「南床 · N」叠牌 */
+let bedSignSprites: THREE.Object3D[] = []
 
 type DeviceHover = {
   deviceSn: string
@@ -743,9 +747,11 @@ function addL1Rack(bed: { x0: number; x1: number; y0: number; y1: number }, grou
       group.add(sprout)
     }
   }
-  const l1Tag = makeLabelSprite('L1 组培/炼苗', 2.0)
-  l1Tag.position.set(lx(cx), Z_L1 + 0.42, cz)
+  const l1Tag = makeLabelSprite('L1 组培/炼苗', 1.55)
+  l1Tag.position.set(lx(cx), Z_L1 + 0.55, cz)
+  l1Tag.userData.bedSign = true
   group.add(l1Tag)
+  bedSignSprites.push(l1Tag)
 }
 
 function addStackedCrops(bed: { x0: number; x1: number; y0: number; y1: number; bedId?: string }, group: THREE.Group) {
@@ -833,10 +839,13 @@ function attachCropHit(
   cropHitRoots.push(hit)
 
   const accent = info.key === 'dendrobium' ? '#34c759' : info.key === 'strawberry' ? '#ff3b30' : '#0071e3'
-  const spr = makeAccentLabelSprite(`${info.nameZh} · ${bed.roleZh}`, accent, 3.0)
-  spr.position.set(lx((bed.x0 + bed.x1) / 2), 2.05, (bed.y0 + bed.y1) / 2)
+  const spr = makeAccentLabelSprite(`${info.nameZh} · ${bed.roleZh}`, accent, 2.15)
+  const anchor = bedLabelAnchor(bed)
+  spr.position.set(lx(anchor.x), anchor.y, anchor.z)
   spr.userData.cropBed = meta
+  spr.userData.bedSign = true
   group.add(spr)
+  bedSignSprites.push(spr)
 }
 
 function rebuildStructure(light: GhEffectiveLight) {
@@ -848,10 +857,11 @@ function rebuildStructure(light: GhEffectiveLight) {
   const crops = zoneCropInputs()
   const cropSig = crops.map((c) => `${c.zoneId}:${cropLabel(c.recipe, c.zoneId, c.recipeId).key}`).join('|')
   const mode = assets?.ready ? 'glb' : 'proc'
-  const key = `${L}x${W}x${H}-v2.2-ewfix-${mode}-${cropSig}`
+  const key = `${L}x${W}x${H}-v2.3-labelSpread-${mode}-${cropSig}`
   if (key === structureKey) return
   structureKey = key
   cropHitRoots = []
+  bedSignSprites = []
 
   scene.children
     .filter((c) => c.userData.structure)
@@ -878,6 +888,7 @@ function rebuildStructure(light: GhEffectiveLight) {
   } else {
     group.traverse((obj) => {
       if (obj.userData?.cropBed && obj.name?.startsWith?.('hit-')) cropHitRoots.push(obj)
+      if (obj.userData?.bedSign) bedSignSprites.push(obj)
     })
   }
 
@@ -1766,7 +1777,9 @@ function rebuildClusters(light: GhEffectiveLight) {
   }
   for (const row of byBed.values()) {
     const root = new THREE.Group()
-    root.position.set(lx(row.bed.x), 1.55, row.bed.z)
+    const along = row.bed.roleZh === '南床' ? 0.28 : row.bed.roleZh === '北床' ? 0.72 : 0.5
+    const x = row.bed.x0 + (row.bed.x1 - row.bed.x0) * along
+    root.position.set(lx(x), bedClusterLabelY(row.bed), row.bed.z)
     root.userData = {
       deviceSn: row.sn,
       deviceType: 'CLUSTER',
@@ -1776,7 +1789,7 @@ function rebuildClusters(light: GhEffectiveLight) {
     }
     const color = STATUS_GLOW_HEX[row.tone]
     const disc = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24),
+      new THREE.CylinderGeometry(0.32, 0.32, 0.04, 24),
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
@@ -1786,8 +1799,9 @@ function rebuildClusters(light: GhEffectiveLight) {
     )
     disc.userData = { ...root.userData }
     root.add(disc)
-    const label = makeLabelSprite(`${row.bed.roleZh} · ${row.count}`, 1.8)
-    label.position.set(0, 0.35, 0)
+    const label = makeLabelSprite(`${row.bed.roleZh} · ${row.count}`, 1.35)
+    label.position.set(0, 0.38, 0)
+    label.renderOrder = 18
     root.add(label)
     clusterGroup.add(root)
     clusterHitRoots.push(disc)
@@ -1813,6 +1827,9 @@ function applyLodVisibility() {
   if (sensorGroup) sensorGroup.visible = detail
   if (markerGroup) markerGroup.visible = detail
   if (clusterGroup) clusterGroup.visible = !detail
+  for (const spr of bedSignSprites) {
+    spr.visible = detail
+  }
   if (detail) {
     for (const g of [lampGroup, sensorGroup, markerGroup]) {
       if (!g) continue

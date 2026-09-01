@@ -88,13 +88,17 @@ async function onLogout() {
     </div>
 
     <Transition name="fade">
-      <div v-if="realtime.latestAlarm" class="toast" role="alert">
+      <div
+        v-if="realtime.latestAlarm && route.name !== 'greenhouse'"
+        class="toast"
+        role="alert"
+      >
         <div class="toast-icon">!</div>
         <div class="toast-body">
           <strong>新告警</strong>
           <p>{{ realtime.latestAlarm.deviceName }} · {{ realtime.latestAlarm.message }}</p>
         </div>
-                <button type="button" class="toast-close" @click="realtime.clearAlarmToast()">关闭</button>
+        <button type="button" class="toast-close" @click="realtime.clearAlarmToast()">关闭</button>
       </div>
     </Transition>
 

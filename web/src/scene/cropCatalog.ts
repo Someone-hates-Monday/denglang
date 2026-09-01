@@ -59,6 +59,25 @@ export function bedHasL1Tier(bedId: string): boolean {
   return L1_BED_IDS.has(bedId)
 }
 
+/**
+ * 棚内床位标牌锚点：按南/中/北错开高度与沿床位置，减轻透视遮挡。
+ * 返回棚坐标（与 layout JSON 一致：x 东、z 北）。
+ */
+export function bedLabelAnchor(bed: BedCropSpec): { x: number; y: number; z: number } {
+  const along = bed.roleZh === '南床' ? 0.22 : bed.roleZh === '北床' ? 0.78 : 0.5
+  const x = bed.x0 + (bed.x1 - bed.x0) * along
+  const yBase = bed.roleZh === '南床' ? 1.48 : bed.roleZh === '北床' ? 2.42 : 1.92
+  const y = bedHasL1Tier(bed.bedId) ? yBase + 0.38 : yBase
+  const z = (bed.y0 + bed.y1) / 2
+  return { x, y, z }
+}
+
+/** 聚合模式下床位圆盘标牌高度（相对地面） */
+export function bedClusterLabelY(bed: BedCropSpec): number {
+  const base = bed.roleZh === '南床' ? 1.25 : bed.roleZh === '北床' ? 1.85 : 1.52
+  return bedHasL1Tier(bed.bedId) ? base + 0.2 : base
+}
+
 /** 由配方 id 解析作物种类（3D 演示冻结为整跨石斛） */
 export function cropKeyFromRecipeId(_recipeId: string | undefined | null, _zoneId: string): CropKey {
   return BAY_SINGLE_CROP

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { greenhouseApi, type GhAgentChatResult } from '../api/greenhouse'
 import { offlineAnswer } from '../agent/offlineFallback'
 import { useAuthStore } from '../stores/auth'
@@ -11,10 +11,12 @@ type Msg = {
   meta?: { toolsUsed?: string[]; citations?: { title: string; source: string }[]; mode?: string }
 }
 
-const POS_KEY = 'gh.agent.fabPos'
+const POS_KEY = 'gh.agent.fabPos.v2'
 const FAB_W = 156
 const FAB_H = 48
 const MARGIN = 12
+/** 相对左侧栏「用户」区域上方的默认间距 */
+const DEFAULT_GAP_ABOVE_USER = 16
 
 const auth = useAuthStore()
 const open = ref(false)
@@ -23,8 +25,8 @@ const busy = ref(false)
 const sessionId = ref<string | undefined>()
 const listEl = ref<HTMLElement | null>(null)
 
-/** left / bottom：默认左下，避开光场右下坞；告警 toast 在右上 */
-const pos = ref({ left: 24, bottom: 24 })
+/** left / bottom：默认在左侧栏用户卡片上方 */
+const pos = ref({ left: 42, bottom: 200 })
 
 const list = ref<Msg[]>([
   {
@@ -74,11 +76,27 @@ function clampPos(left: number, bottom: number) {
   }
 }
 
+/** 默认：左侧栏内、用户卡片上方留出纵向间距 */
+function defaultPos() {
+  const rail = document.querySelector('.rail') as HTMLElement | null
+  const user = (document.querySelector('.rail .user-card') ||
+    document.querySelector('.rail .foot')) as HTMLElement | null
+  if (rail && user) {
+    const rr = rail.getBoundingClientRect()
+    const ur = user.getBoundingClientRect()
+    const left = rr.left + Math.max(MARGIN, (rr.width - FAB_W) / 2)
+    const bottom = window.innerHeight - ur.top + DEFAULT_GAP_ABOVE_USER
+    return clampPos(left, bottom)
+  }
+  // 无侧栏时（窄屏）：左下偏上一点
+  return clampPos(MARGIN + 8, 120)
+}
+
 function loadPos() {
   try {
     const raw = localStorage.getItem(POS_KEY)
     if (!raw) {
-      pos.value = clampPos(24, 24)
+      pos.value = defaultPos()
       return
     }
     const parsed = JSON.parse(raw) as { left?: number; bottom?: number }
@@ -89,7 +107,7 @@ function loadPos() {
   } catch {
     /* fallthrough */
   }
-  pos.value = clampPos(24, 24)
+  pos.value = defaultPos()
 }
 
 function savePos() {
@@ -212,7 +230,7 @@ function applyChip(q: string) {
 }
 
 onMounted(() => {
-  loadPos()
+  void nextTick(() => loadPos())
   window.addEventListener('resize', onResize)
 })
 onUnmounted(() => {

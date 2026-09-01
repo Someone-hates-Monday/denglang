@@ -5,6 +5,7 @@ import {
   BAY_SINGLE_CROP,
   CROP_META,
   bedHasL1Tier,
+  bedLabelAnchor,
   cropLabel,
 } from './cropCatalog'
 import { makeAccentLabelSprite } from './labelSprite'
@@ -171,9 +172,11 @@ export function placeGlbStructure(
     hit.userData.cropBed = unit.userData.cropBed
     unit.add(hit)
 
-    const lab = makeAccentLabelSprite(`${info.nameZh} · ${bed.roleZh}`, accentCss(), 2.6)
-    lab.position.set(0, bedHasL1Tier(bed.bedId) ? 2.35 : 1.75, 0)
+    const lab = makeAccentLabelSprite(`${info.nameZh} · ${bed.roleZh}`, accentCss(), 2.15)
+    const anchor = bedLabelAnchor(bed)
+    lab.position.set(anchor.x - bed.x, anchor.y, anchor.z - bed.z)
     lab.userData.cropBed = unit.userData.cropBed
+    lab.userData.bedSign = true
     unit.add(lab)
 
     parent.add(unit)

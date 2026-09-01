@@ -403,6 +403,15 @@ function snapShade(pct: number) {
   return best
 }
 
+/** shadeOpenPercent：100=网全收（透光最大），0≈满展遮光 */
+function shadeOpenHint(openPct: number | undefined | null) {
+  const o = openPct ?? 100
+  const closed = Math.max(0, 100 - o)
+  if (o >= 95) return '网全收 · 透光最大'
+  if (o <= 15) return '网近满展 · 遮光最强'
+  return `闭光约 ${closed}%`
+}
+
 async function onShade(e: Event) {
   const pct = snapShade(Number((e.target as HTMLInputElement).value))
   const sn = zoneId.value === 'ZONE-B' ? 'SHADE-ZONE-B' : 'SHADE-ZONE-A'
@@ -601,12 +610,28 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <div class="status-legend" aria-label="状态光晕图例">
-          <span><i data-tone="alarm" />告警</span>
-          <span><i data-tone="offline" />离线</span>
-          <span><i data-tone="wo-pending" />待审</span>
-          <span><i data-tone="wo-approved" />待接</span>
-          <span><i data-tone="wo-progress" />执行中</span>
+        <div class="stage-corner" aria-label="图例与告警">
+          <div class="status-legend" aria-label="状态光晕图例">
+            <span><i data-tone="alarm" />告警</span>
+            <span><i data-tone="offline" />离线</span>
+            <span><i data-tone="wo-pending" />待审</span>
+            <span><i data-tone="wo-approved" />待接</span>
+            <span><i data-tone="wo-progress" />执行中</span>
+          </div>
+          <Transition name="corner-toast">
+            <div v-if="realtime.latestAlarm" class="scene-alarm-toast" role="alert">
+              <div class="toast-icon">!</div>
+              <div class="toast-body">
+                <strong>新告警</strong>
+                <p>
+                  {{ realtime.latestAlarm.deviceName }} · {{ realtime.latestAlarm.message }}
+                </p>
+              </div>
+              <button type="button" class="toast-close" @click="realtime.clearAlarmToast()">
+                关闭
+              </button>
+            </div>
+          </Transition>
         </div>
 
         <nav class="dock" aria-label="功能入口">
@@ -859,7 +884,11 @@ onUnmounted(() => {
           </p>
           <div class="control-stack" v-if="light && canActuate">
             <label class="slider" v-if="auth.can('ctrl.shade')">
-              <span>遮阳粗档 {{ light.shadeOpenPercent }}%（{{ shadeSteps.join('/') }}）</span>
+              <span>
+                遮阳开度 {{ light.shadeOpenPercent }}%
+                <em class="shade-hint">{{ shadeOpenHint(light.shadeOpenPercent) }}</em>
+                （粗档 {{ shadeSteps.join('/') }}）
+              </span>
               <input
                 type="range"
                 min="10"
@@ -1201,15 +1230,25 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, #c45c26 50%, var(--line));
 }
 
-.status-legend {
+.stage-corner {
   position: absolute;
-  left: 12px;
-  bottom: 14px;
+  top: 12px;
+  right: 12px;
   z-index: 4;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(48%, 360px);
+  pointer-events: none;
+}
+
+.status-legend {
+  position: static;
+  display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px 12px;
-  max-width: min(42%, 280px);
   padding: 8px 10px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--panel) 90%, transparent);
@@ -1218,6 +1257,81 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--ink-soft);
   pointer-events: none;
+}
+
+.scene-alarm-toast {
+  pointer-events: auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger, #ff3b30) 40%, var(--line));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.scene-alarm-toast .toast-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger, #ff3b30) 16%, transparent);
+  color: var(--danger, #ff3b30);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.scene-alarm-toast .toast-body {
+  min-width: 0;
+}
+
+.scene-alarm-toast .toast-body strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scene-alarm-toast .toast-body p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.scene-alarm-toast .toast-close {
+  flex-shrink: 0;
+  border: none;
+  background: var(--paper, #f2f2f7);
+  color: var(--ink);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.scene-alarm-toast .toast-close:hover {
+  background: var(--line-strong, #d1d1d6);
+}
+
+.corner-toast-enter-active,
+.corner-toast-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.corner-toast-enter-from,
+.corner-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .status-legend span {
@@ -1509,6 +1623,13 @@ onUnmounted(() => {
   gap: 8px;
   font-size: var(--text-sm);
   color: var(--ink-soft);
+}
+
+.shade-hint {
+  margin-left: 6px;
+  font-style: normal;
+  color: var(--ink-muted);
+  font-size: 12px;
 }
 
 .slider input[type='range'] {
