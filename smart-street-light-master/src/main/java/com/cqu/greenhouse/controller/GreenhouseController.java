@@ -94,14 +94,10 @@ public class GreenhouseController {
 
     @PostMapping("/lamps/{sn}/dimming")
     public Result<String> dimming(@PathVariable String sn, @RequestBody Map<String, Object> body) {
-        try {
-            int pct = Integer.parseInt(String.valueOf(body.get("dimmingPercent")));
-            RoleCapabilities.requireDimming(UserHolder.getRole(), pct);
-            greenhouseService.setDimming(sn, pct, "MANUAL");
-            return Result.success("ok");
-        } catch (Exception e) {
-            return Result.fail(e instanceof com.cqu.security.ForbiddenException ? 403 : 500, e.getMessage());
-        }
+        int pct = Integer.parseInt(String.valueOf(body.get("dimmingPercent")));
+        RoleCapabilities.requireDimming(UserHolder.getRole(), pct);
+        greenhouseService.setDimming(sn, pct, "MANUAL");
+        return Result.success("ok");
     }
 
     @RequireCap({RoleCapabilities.CTRL_SHADE})
@@ -124,46 +120,30 @@ public class GreenhouseController {
     @RequireCap({RoleCapabilities.WO_APPROVE})
     @PostMapping("/work-orders/{id}/approve")
     public Result<String> approve(@PathVariable Long id) {
-        try {
-            greenhouseService.approveWorkOrder(id);
-            return Result.success("ok");
-        } catch (Exception e) {
-            return Result.fail(e.getMessage());
-        }
+        greenhouseService.approveWorkOrder(id);
+        return Result.success("ok");
     }
 
     @RequireCap({RoleCapabilities.WO_REJECT})
     @PostMapping("/work-orders/{id}/reject")
     public Result<String> reject(@PathVariable Long id) {
-        try {
-            greenhouseService.rejectWorkOrder(id);
-            return Result.success("ok");
-        } catch (Exception e) {
-            return Result.fail(e.getMessage());
-        }
+        greenhouseService.rejectWorkOrder(id);
+        return Result.success("ok");
     }
 
     /** 种植员接单执行：下发执行器并完成工单（R1 合并 claim+execute） */
     @RequireCap({RoleCapabilities.WO_CLAIM})
     @PostMapping("/work-orders/{id}/claim")
     public Result<String> claim(@PathVariable Long id) {
-        try {
-            greenhouseService.claimWorkOrder(id);
-            return Result.success("ok");
-        } catch (Exception e) {
-            return Result.fail(e.getMessage());
-        }
+        greenhouseService.claimWorkOrder(id);
+        return Result.success("ok");
     }
 
     @RequireCap({RoleCapabilities.WO_COMPLETE})
     @PostMapping("/work-orders/{id}/complete")
     public Result<String> complete(@PathVariable Long id) {
-        try {
-            greenhouseService.completeWorkOrder(id);
-            return Result.success("ok");
-        } catch (Exception e) {
-            return Result.fail(e.getMessage());
-        }
+        greenhouseService.completeWorkOrder(id);
+        return Result.success("ok");
     }
 
     @RequireCap({RoleCapabilities.LOG_VIEW})
