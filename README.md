@@ -35,11 +35,11 @@ npm run dev
 | `docs/greenhouse/GREENHOUSE-LAYOUT.md` | **棚体设计真源**（边界/日光/床/灯/传感器） |
 | `docs/greenhouse/layouts/` | 机器可读布局 JSON |
 | `docs/greenhouse/` | PRD、BOM、契约、实施说明 |
-| `smart-street-light-master/` | Spring Boot + Docker（PG/EMQX）+ `gh_*` |
-| `web/` | 前端控制台 |
+| `smart-street-light-master/` | Spring Boot 后端（产物 `zhihui-guangpeng.jar`）+ Docker（PG/EMQX）+ `gh_*` |
+| `web/` | 前端控制台（包名 `zhihui-guangpeng`） |
 | `HANDOFF.md` | Agent / 组员交接 |
 
-目录名仍含 `street-light`（历史包名）；**产品是智慧光棚，不是城市路灯。**
+目录名 / 库名仍含历史 `street-light`（避免打断本机 Docker 卷）；**产品名与发布产物为智慧光棚 `zhihui-guangpeng`。** 协作仓：https://github.com/Someone-hates-Monday/zhihui-guangpeng
 
 ## Docker
 

@@ -231,15 +231,15 @@ Tomcat started on port(s): 8080
 
 ```powershell
 docker run --rm -v "${PWD}:/app" -w /app maven:3.9-eclipse-temurin-21 mvn package -DskipTests
-# 成功后生成 target\smart-street-light-0.0.1-SNAPSHOT.jar
+# 成功后生成 target\zhihui-guangpeng.jar
 ```
 
 > 首次会下载依赖，需联网；国内网络慢可加 `-s settings.xml`（项目自带 `scripts\maven-settings-aliyun.xml` 可改用阿里云镜像）。
 
-**② 启动（需本机 JDK 21）：**
+**② 启动（需 JDK 21）：**
 
 ```powershell
-java -jar target\smart-street-light-0.0.1-SNAPSHOT.jar --spring.profiles.active=local,secret
+java -jar target\zhihui-guangpeng.jar --spring.profiles.active=local,secret
 ```
 
 ### 6.3 验证后端

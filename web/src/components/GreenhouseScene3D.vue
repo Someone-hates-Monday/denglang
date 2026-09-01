@@ -1380,8 +1380,6 @@ function colorAtHeatIndex(
     b: Float32Array
   },
   chRef: number,
-  nx: number,
-  L: number,
   viewR?: Float32Array,
   viewG?: Float32Array,
   viewB?: Float32Array,
@@ -1469,7 +1467,7 @@ function updateHeatmap(light: GhEffectiveLight) {
   } else if (canPatch && heatMesh) {
     const colors = heatMesh.geometry.getAttribute('color') as THREE.BufferAttribute
     for (let i = 0; i < nx * ny; i++) {
-      const [r, g, b] = colorAtHeatIndex(i, ch, field, chRef, nx, L, viewR, viewG, viewB)
+      const [r, g, b] = colorAtHeatIndex(i, ch, field, chRef, viewR, viewG, viewB)
       colors.setXYZ(i, r / 255, g / 255, b / 255)
     }
     colors.needsUpdate = true
@@ -1492,7 +1490,7 @@ function updateHeatmap(light: GhEffectiveLight) {
       sliceGhost = null
     }
     const geo = buildFlatHeatGeometry(nx, ny, L, W, z, (i) =>
-      colorAtHeatIndex(i, ch, field, chRef, nx, L, viewR, viewG, viewB),
+      colorAtHeatIndex(i, ch, field, chRef, viewR, viewG, viewB),
     )
     heatMesh = makeHeatLayer(geo, 0.84, RENDER.HEAT, 0.012)
     scene.add(heatMesh)

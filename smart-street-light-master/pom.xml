@@ -11,10 +11,10 @@
     </parent>
 
     <groupId>com.cqu</groupId>
-    <artifactId>smart-street-light</artifactId>
+    <artifactId>zhihui-guangpeng</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>smart-street-light</name>
-    <description>smart-street-light</description>
+    <name>zhihui-guangpeng</name>
+    <description>智慧光棚 · 设施农业控光实训平台</description>
 
     <properties>
         <java.version>21</java.version>
@@ -101,6 +101,7 @@
     </dependencies>
 
     <build>
+        <finalName>zhihui-guangpeng</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

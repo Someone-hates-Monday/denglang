@@ -10,6 +10,7 @@ import {
 } from './cropCatalog'
 import { makeAccentLabelSprite } from './labelSprite'
 import { layoutX } from './layoutCoords'
+import { placeLedStrip } from './ledFixture'
 import type { GhRecipe } from '../api/greenhouse'
 
 export type ZoneCropInput = {

@@ -57,7 +57,6 @@ const lights = ref<Record<string, GhEffectiveLight>>({})
 const zoneId = ref('ZONE-A')
 const showHeat = ref(true)
 const heatChannel = ref<HeatChannel>('xray')
-const heatChannels: HeatChannel[] = ['xray']
 const statusFilter = ref<'all' | 'attention' | 'alarm' | 'wo' | 'offline'>('all')
 const statusFilterOpts = [
   { id: 'all' as const, label: '全部' },

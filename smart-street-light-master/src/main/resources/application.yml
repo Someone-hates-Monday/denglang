@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: smart-street-light
+    name: zhihui-guangpeng
   profiles:
     include: secret  # 引入密码配置文件（application-secret.yml）
   datasource:

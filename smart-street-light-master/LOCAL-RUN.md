@@ -26,7 +26,7 @@ powershell -ExecutionPolicy Bypass -File scripts\mqtt-simulate-fleet.ps1
 docker run --rm -v "${PWD}:/app" -w /app maven:3.9-eclipse-temurin-21 mvn package -DskipTests
 
 # 运行（需 JDK 21）
-java -jar target/smart-street-light-0.0.1-SNAPSHOT.jar --spring.profiles.active=local,secret
+java -jar target/zhihui-guangpeng.jar --spring.profiles.active=local,secret
 ```
 
 ## 配置说明

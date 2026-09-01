@@ -33,4 +33,4 @@ docker run --rm `
     mvn package -DskipTests -q
 
 Write-Host ("Starting http://localhost:8080 profiles=" + $profiles)
-java -jar target/smart-street-light-0.0.1-SNAPSHOT.jar --spring.profiles.active=$profiles
+java -jar target/zhihui-guangpeng.jar --spring.profiles.active=$profiles
