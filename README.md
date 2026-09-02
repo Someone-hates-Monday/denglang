@@ -7,13 +7,15 @@
 先看 **[docs/greenhouse/IMPLEMENT.md](docs/greenhouse/IMPLEMENT.md)** 与 **[HANDOFF.md](HANDOFF.md)**（含需求对照与已定方案）。
 
 ```powershell
-git clone https://github.com/xikunn/wuliu.git
-cd wuliu
+git clone https://github.com/Someone-hates-Monday/zhihui-guangpeng.git
+cd zhihui-guangpeng
 cd smart-street-light-master
 docker compose up -d
 powershell -ExecutionPolicy Bypass -File scripts\apply-greenhouse.ps1
 # 后端：Docker Maven 打 jar 或 IDE 以 local,secret 启动
 ```
+
+一键发布包（免源码编译）：[Releases · v0.1.1](https://github.com/Someone-hates-Monday/zhihui-guangpeng/releases/tag/v0.1.1) 下载 `zhihui-guangpeng-0.1.1.zip`。
 
 另开终端：
 

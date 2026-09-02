@@ -6,7 +6,7 @@
 
 ```powershell
 # 在仓库根目录打包
-powershell -ExecutionPolicy Bypass -File scripts\release\pack-release.ps1 -Version 0.1.0
+powershell -ExecutionPolicy Bypass -File scripts\release\pack-release.ps1 -Version 0.1.1
 ```
 
 产物：
