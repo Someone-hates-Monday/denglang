@@ -1,0 +1,45 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: zhihui-guangpeng
+  profiles:
+    include: secret  # 引入密码配置文件（application-secret.yml）
+  datasource:
+    url: jdbc:postgresql://10.59.47.188:5432/smart-street-light
+    username: postgres
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.cqu.entity # 别名扫描包
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com.cqu:
+      mapper: debug
+      mapper.DevicesMapper: warn
+      service: info
+      controller: info
+
+# ==================== MQTT 配置（连接 Docker EMQX） ====================
+mqtt:
+  broker-url: tcp://10.59.47.188:1883
+  client-id: smart-light-server
+
+# 光棚 → BearPi 演示桥接（local 配置可覆盖为 enabled: true）
+greenhouse:
+  hardware-bridge:
+    enabled: false
+    lamp-sn: LAMP-ZONE-A-01
+    bearpi-sn: SN-RM-001
+
+# 顾问智能体 LLM（默认 DeepSeek）；api-key 只写在 application-secret.yml，此处勿放空串覆盖
+llm:
+  base-url: https://api.deepseek.com/v1
+  model: deepseek-chat
+  temperature: 0.3
+  max-tokens: 2048
+  top-k: 4

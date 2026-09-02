@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cqu.mapper.KnowledgeChunksMapper">
+
+    <!-- 基于向量余弦相似度检索最相似的文档块 -->
+    <select id="searchByEmbedding" resultType="com.cqu.entity.KnowledgeChunks">
+        SELECT id, title, content
+        FROM knowledge_chunks
+        ORDER BY embedding &lt;=&gt; #{embeddingStr}::vector
+        LIMIT #{topK}
+    </select>
+
+</mapper>

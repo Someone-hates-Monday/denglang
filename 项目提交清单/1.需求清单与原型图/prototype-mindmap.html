@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>智慧光棚 · 原型思维导图</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width: 1600px; height: 980px;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f6f9f6;
+    overflow: hidden;
+  }
+  .title {
+    position:absolute; top:22px; left:0; right:0; text-align:center;
+    font-size:30px; font-weight:700; color:#1e3a2e; letter-spacing:2px;
+  }
+  .subtitle {
+    position:absolute; top:64px; left:0; right:0; text-align:center;
+    font-size:15px; color:#6b7d72;
+  }
+  /* 中心主题 */
+  .root {
+    position:absolute; left:56px; top:50%;
+    transform: translateY(-50%);
+    width:230px; padding:34px 18px;
+    background: linear-gradient(145deg,#1e3a2e,#2f5d4a);
+    color:#eef5ef; border-radius:20px; text-align:center;
+    box-shadow:0 12px 30px rgba(20,45,34,.35);
+    z-index:5;
+  }
+  .root .big { font-size:26px; font-weight:800; display:block; letter-spacing:4px; }
+  .root .sm { font-size:12px; opacity:.85; display:block; margin-top:6px; line-height:1.6; }
+  /* 分支 */
+  .branch {
+    position:absolute; left:300px; top:50%; transform:translateY(-50%);
+    width:1270px; display:flex; justify-content:space-between; align-items:center;
+  }
+  .col { width:242px; }
+  .head {
+    background:#2f5d4a; color:#fff; border-radius:12px 12px 4px 12px;
+    padding:12px 12px; font-size:17px; font-weight:700; text-align:center;
+    position:relative; box-shadow:0 6px 16px rgba(20,45,34,.25);
+  }
+  .head .en { display:block; font-size:11px; font-weight:400; opacity:.75; margin-top:2px; }
+  .kids { margin-top:12px; display:flex; flex-direction:column; gap:8px; }
+  .kid {
+    background:#fff; border:1px solid #cfe0d4; border-left:4px solid #4c8a6b;
+    border-radius:8px; padding:9px 11px; font-size:13px; line-height:1.45; color:#223a2e;
+    box-shadow:0 2px 6px rgba(0,0,0,.05);
+  }
+  .kid b { color:#2f5d4a; }
+  /* 连接线：用伪元素画横向线 */
+  .col::before {
+    content:""; position:absolute; left:-14px; top:50%;
+    width:14px; height:3px; background:#7aa389;
+  }
+  .col { position:relative; }
+  .head::before {
+    content:""; position:absolute; left:-14px; top:50%; transform:translateY(-50%);
+    width:14px; height:3px; background:#7aa389;
+  }
+  .root::after {
+    content:""; position:absolute; right:-14px; top:50%; transform:translateY(-50%);
+    width:14px; height:3px; background:#7aa389;
+  }
+  .cols { display:flex; justify-content:space-between; width:100%; }
+  .tag { position:absolute; bottom:20px; left:0; right:0; text-align:center; font-size:12px; color:#8a9a90; }
+</style>
+</head>
+<body>
+  <div class="title">智慧光棚 · 产品原型思维导图</div>
+  <div class="subtitle">面向设施栽培的光环境闭环管控平台 — 多维度产品描述</div>
+
+  <div class="root">
+    <span class="big">智慧光棚</span>
+    <span class="sm">测光 → 配方比对 → 补光/遮阳联动 → 农艺工单可审计</span>
+  </div>
+
+  <div class="branch">
+    <div class="cols">
+      <div class="col">
+        <div class="head">产品定位<span class="en">POSITION</span></div>
+        <div class="kids">
+          <div class="kid"><b>重庆单跨拱棚</b> 16×7 m，南向采光</div>
+          <div class="kid"><b>主作物</b> 铁皮石斛（组培/栽培）</div>
+          <div class="kid"><b>辅作物</b> 草莓 · 金线莲</div>
+          <div class="kid"><b>非目标</b> 水肥全环控/计费 SaaS</div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="head">核心闭环<span class="en">CLOSED-LOOP</span></div>
+        <div class="kids">
+          <div class="kid"><b>测光</b> PAR 测点 + MQTT 遥测</div>
+          <div class="kid"><b>配方比对</b> 目标带/硬限</div>
+          <div class="kid"><b>补光/遮阳</b> 欠补过遮</div>
+          <div class="kid"><b>工单</b> 大开度审批→执行→审计</div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="head">作物与配方<span class="en">RECIPES</span></div>
+        <div class="kids">
+          <div class="kid">石斛组培 <b>60–70 PPFD</b></div>
+          <div class="kid">石斛栽培 <b>90–120 PPFD</b></div>
+          <div class="kid">草莓 <b>250–400 PPFD · DLI 17–25</b></div>
+          <div class="kid">金线莲 <b>25–35 PPFD</b>（耐阴）</div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="head">六类角色<span class="en">RBAC</span></div>
+        <div class="kids">
+          <div class="kid"><b>场长</b> 策略/总览/AUTO</div>
+          <div class="kid"><b>农艺师</b> 配方/审批</div>
+          <div class="kid"><b>种植员</b> 接单执行</div>
+          <div class="kid"><b>运维·学员·系统</b> 调试/只读/账号</div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="head">页面与演示<span class="en">PAGES</span></div>
+        <div class="kids">
+          <div class="kid">总览 · 冠层光场 3D · 工单</div>
+          <div class="kid">设备 · 日志 · 报告</div>
+          <div class="kid"><b>重庆日型仿真</b> 一天=120s</div>
+          <div class="kid"><b>农艺助手</b> 悬浮问答</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tag">智慧光棚 · 需求清单配套原型图</div>
+</body>
+</html>

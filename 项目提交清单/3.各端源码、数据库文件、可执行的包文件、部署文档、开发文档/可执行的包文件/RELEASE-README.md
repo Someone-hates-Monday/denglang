@@ -1,0 +1,392 @@
+# 智慧光棚 · 发布包 {{VERSION}}
+
+按下面顺序，在 **Windows PowerShell** 里**逐条复制运行**即可。  
+不要跳步；每一步看到「成功/正常输出」再做下一步。
+
+发布包下载：https://github.com/Someone-hates-Monday/zhihui-guangpeng/releases  
+源码仓：https://github.com/Someone-hates-Monday/zhihui-guangpeng
+
+---
+
+## 第 0 步 · 打开终端
+
+1. 开始菜单搜索 **PowerShell**，以普通用户打开即可。  
+2. 建议先执行（允许本机脚本，只需做一次）：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+若提示确认，输入 `Y` 回车。
+
+---
+
+## 第 1 步 · 安装并启动 Docker Desktop
+
+若已安装并常开 Docker，可跳到「检查」命令。
+
+1. 安装（任选一种）：
+   - 官网：https://www.docker.com/products/docker-desktop/  
+   - 或 winget：
+
+```powershell
+winget install -e --id Docker.DockerDesktop
+```
+
+2. 安装完成后建议 **注销 Windows 或重启电脑一次**（否则 PATH 可能还没有 `docker`）。  
+3. **关掉旧的 PowerShell 窗口，重新打开** 一个新的 PowerShell。  
+4. 打开 **Docker Desktop**，等到左下角为 Running（鲸鱼图标稳定、无 “Starting…”）。  
+5. 检查：
+
+```powershell
+docker version
+docker ps
+```
+
+应能看到 Client / Server，且 `docker ps` 不报错。  
+
+若提示 **无法将 “docker” 项识别为…**，见下方「附录 B · `docker` 命令找不到」。  
+若能识别 `docker` 但报 `500` / 引擎失败 / WSL 相关错误：先安装 **WSL2**，再重启 Docker Desktop（见附录 B · WSL）。
+
+---
+
+## 第 2 步 · 安装 JDK 21
+
+```powershell
+winget install -e --id Microsoft.OpenJDK.21
+```
+
+关闭并重新打开 PowerShell，再检查：
+
+```powershell
+java -version
+```
+
+输出里应出现 `21`。
+
+若提示 **无法将 “java” 项识别为…**：与 Docker 相同，多半是 **PATH 未刷新**。请 **关掉本窗口、新开 PowerShell**，或注销/重启后再试。仍不行见「附录 B · `java` 命令找不到」。
+
+---
+
+## 第 3 步 · 安装 Node.js（用于托管前端页面）
+
+```powershell
+winget install -e --id OpenJS.NodeJS.LTS
+```
+
+重新打开 PowerShell，检查：
+
+```powershell
+node -v
+npm -v
+```
+
+应显示版本号（建议 Node 18+）。  
+若 `node`/`npm` 无法识别：同样先 **重开终端或重启**，再试。
+
+---
+
+## 第 4 步 · 下载并解压发布包
+
+### 方式 A · 浏览器（最简单）
+
+1. 打开：https://github.com/Someone-hates-Monday/zhihui-guangpeng/releases/tag/v{{VERSION}}  
+2. 下载 **`zhihui-guangpeng-{{VERSION}}.zip`**  
+3. 解压到例如：`D:\apps\zhihui-guangpeng-{{VERSION}}\`  
+4. 进入目录：
+
+```powershell
+cd D:\apps\zhihui-guangpeng-{{VERSION}}
+```
+
+（路径改成你实际解压位置。）
+
+### 方式 B · 命令行下载（需已安装 GitHub CLI `gh`）
+
+```powershell
+cd $HOME\Downloads
+gh release download v{{VERSION}} --repo Someone-hates-Monday/zhihui-guangpeng --pattern "zhihui-guangpeng-{{VERSION}}.zip"
+Expand-Archive -Path .\zhihui-guangpeng-{{VERSION}}.zip -DestinationPath .\zhihui-guangpeng-{{VERSION}} -Force
+cd .\zhihui-guangpeng-{{VERSION}}\zhihui-guangpeng-{{VERSION}}
+```
+
+若解压后多一层文件夹，用 `dir` 找到含有 `Start-Guangpeng.ps1` 的目录再 `cd` 进去：
+
+```powershell
+dir
+# 确认能看到 Start-Guangpeng.ps1 、 zhihui-guangpeng.jar 、 web-dist
+```
+
+---
+
+## 第 5 步 · 一键启动（核心）
+
+在**包含 `Start-Guangpeng.ps1` 的目录**执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
+```
+
+首次会：
+
+1. 启动 PostgreSQL、EMQX、**光棚 MQTT 模拟器**（`gh-hw-sim`，订阅调光指令并回 ACK）  
+2. 自动建库并导入演示数据（若库已存在则跳过）  
+3. 启动后端 `:8080`（含进程内光场仿真 + 可选 BearPi 灯桥接）  
+4. 启动前端静态站 `:4173`  
+5. 尝试自动打开浏览器  
+
+看到类似「智慧光棚已启动」即成功。
+
+### 打开页面
+
+```powershell
+Start-Process "http://localhost:4173"
+```
+
+或手动访问：
+
+| 地址 | 用途 |
+|------|------|
+| http://localhost:4173 | **前端（请用这个登录）** |
+| http://localhost:8080 | 后端 API |
+| http://localhost:18083 | EMQX 控制台（`admin` / `public`） |
+
+### 登录账号（复制用户名密码即可）
+
+| 用户名 | 密码 | 角色 |
+|--------|------|------|
+| `admin` | `admin123` | 系统管理员 |
+| `changzhang` | `demo123` | 场长 |
+| `nongyi` | `demo123` | 农艺师 |
+| `zhongzhi` | `demo123` | 种植员 |
+| `yunwei` | `demo123` | 设备运维 |
+| `xueyuan` | `demo123` | 学员 |
+
+建议先：`admin` / `admin123` → 进入「场务光场」。
+
+---
+
+## 第 6 步 · 快速自检（可选但推荐）
+
+```powershell
+docker ps
+Invoke-RestMethod http://localhost:8080/users/login -Method POST -ContentType "application/json" -Body '{"username":"admin","password":"admin123"}'
+```
+
+- `docker ps` 中应有 `streetlight-pg`、`streetlight-emqx`、**`streetlight-gh-hw-sim`**  
+- 登录接口返回里 `code` 应为 `200`
+
+---
+
+## 第 7 步 · 停止服务
+
+先停本机前后端：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Stop-Guangpeng.ps1
+```
+
+若要连数据库容器一起关（仍在发布包目录下）：
+
+```powershell
+cd infra
+docker compose --profile gh-hw-sim down
+cd ..
+```
+
+---
+
+## 附录 C · MQTT 模拟硬件与 BearPi 真机
+
+### 默认（无需额外操作）
+
+一键启动已包含 **gh-hw-sim**：模拟光棚设备订阅 `smart-greenhouse/*/command` 并回 `status` ACK。  
+3D 光场与 AUTO 调光仍主要靠后端**进程内仿真**，与 MQTT 模拟并行不冲突。
+
+自检：
+
+```powershell
+docker ps --filter name=streetlight-gh-hw-sim
+```
+
+### BearPi 真机演示（可选）
+
+1. BearPi 与运行本包的电脑连**同一局域网**，MQTT 指向本机 EMQX：`tcp://<电脑IP>:1883`  
+2. 板端订阅 `smart-light/SN-RM-001/command`（`MANUAL_ON` / `MANUAL_OFF`）  
+3. 在场务光场调节虚拟灯 **`LAMP-ZONE-A-01`（A-S-1）**：
+   - 开度 > 0 → BearPi 灯亮（**不看具体百分比**）
+   - 开度 = 0 → BearPi 灯灭  
+
+可在 EMQX 控制台（`:18083`）查看 topic 收发。
+
+### 路灯页额外模拟（可选，一般答辩不用）
+
+若需「设备」页 7 盏路灯 MQTT 心跳，在 `infra` 目录另启：
+
+```powershell
+docker compose --profile lamp-fleet up -d lamp-fleet
+```
+
+---
+
+## 附录 A · 强制清空并重建数据库
+
+会删除当前库数据，仅在需要「洗库重来」时使用：
+
+```powershell
+$env:GUANGPENG_FORCE_INIT = "1"
+powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
+```
+
+---
+
+## 附录 B · 常见问题（对着命令修）
+
+### `docker` 命令找不到（无法将 “docker” 项识别为…）
+
+**这通常不是「没装 WSL」**，而是 **PowerShell 找不到 docker 可执行文件（PATH 未生效）**。  
+一键启动 **依赖** `docker` 命令；此问题 **不修好就无法部署**（PG / EMQX 起不来）。
+
+按顺序做：
+
+1. 确认任务栏 / 开始菜单里 **Docker Desktop 已安装并能打开**，界面显示 Running。  
+2. **关闭当前 PowerShell**，重新开一个（安装后旧窗口不会自动刷新 PATH）。  
+3. 仍不行：注销或 **重启电脑**，再开 PowerShell 执行 `docker version`。  
+4. 手动查 CLI 是否存在：
+
+```powershell
+Test-Path "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe"
+Get-Command docker -ErrorAction SilentlyContinue
+```
+
+若 `Test-Path` 为 `True` 但 `Get-Command` 仍找不到，把下面目录加入用户 PATH 后重开终端：
+
+`C:\Program Files\Docker\Docker\resources\bin`
+
+```powershell
+# 仅当前窗口临时生效（验证用）
+$env:Path = "C:\Program Files\Docker\Docker\resources\bin;" + $env:Path
+docker version
+```
+
+5. 若 `Test-Path` 为 `False`：Docker Desktop **未装完整**。卸载后重装，安装向导勾选 **Use WSL 2 based engine**，装完务必重启。
+
+### `java` 命令找不到（无法将 “java” 项识别为…）
+
+`winget` 显示 Successfully installed 后，**当前这个 PowerShell 窗口通常还读不到新 PATH**。  
+一键启动需要 `java`；找不到则 **后端 jar 起不来**。
+
+1. **关闭本窗口，新开 PowerShell**，执行 `java -version`（应出现 `21`）。  
+2. 仍不行：注销或重启电脑后再试。  
+3. 查找已安装的 JDK：
+
+```powershell
+Get-ChildItem "C:\Program Files\Microsoft" -Filter "java.exe" -Recurse -ErrorAction SilentlyContinue |
+  Select-Object -First 5 FullName
+Get-ChildItem "C:\Program Files\Java","C:\Program Files\Eclipse Adoptium" -Filter "java.exe" -Recurse -ErrorAction SilentlyContinue |
+  Select-Object -First 5 FullName
+```
+
+找到例如 `...\bin\java.exe` 后，临时加入 PATH（把路径改成你机器上的 `bin` 目录）：
+
+```powershell
+$env:Path = "C:\Program Files\Microsoft\jdk-21.x.x.x-hotspot\bin;" + $env:Path
+java -version
+```
+
+或用「设置 → 系统 → 关于 → 高级系统设置 → 环境变量」，在用户 Path 中加入该 `bin` 目录，确定后重开终端。
+
+### WSL2 相关（能敲出 `docker`，但引擎起不来）
+
+缺 WSL / 引擎未就绪时，常见报错包括：
+
+- `request returned 500 Internal Server Error` … `dockerDesktopLinuxEngine`
+- `Cannot connect to the Docker daemon`
+- `WSL` / `500` / 引擎失败  
+
+**Client 有版本、Server 报 500** = 命令行已找到，但 **Docker Desktop 的 Linux 引擎没跑起来**（本项目必须用引擎起 PG/EMQX）。按顺序：
+
+1. 打开 **Docker Desktop**，等到界面显示 **Running**（不要停在 Starting / Engine stopped）。  
+2. 设置里确认使用 **WSL 2 based engine**（Settings → General）。  
+3. 安装或更新 WSL2（管理员 PowerShell）：
+
+```powershell
+wsl --install
+# 若已装过：
+wsl --update
+wsl --status
+```
+
+4. **重启电脑**，再开 Docker Desktop，等 Running 后执行：
+
+```powershell
+docker version
+docker ps
+```
+
+此时应同时看到 **Client** 和 **Server**，且 `docker ps` 无报错。  
+
+5. 若仍 500：Docker Desktop → Troubleshoot → **Restart** / **Clean / Purge data**（后者会清空本地镜像，慎用）；或重装 Docker Desktop 并勾选 WSL2。
+
+### 端口被占用
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Stop-Guangpeng.ps1
+```
+
+仍占用时可查看：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8080,4173 -State Listen
+```
+
+### Docker 没起来（命令能识别，但 ps 失败）
+
+```powershell
+# 打开 Docker Desktop，等到 Running 后重试
+docker ps
+```
+
+### 启动失败看日志
+
+```powershell
+Get-Content .\.run\backend.log -Tail 50
+Get-Content .\.run\backend.err -Tail 50
+Get-Content .\.run\frontend.log -Tail 50
+Get-Content .\.run\frontend.err -Tail 50
+```
+
+### 首次启动报 `database "smart-street-light" does not exist`
+
+全新 Docker 卷里还没有业务库，旧版启动脚本在检测时会误中止。请用 **v0.1.1 之后** 的发布包，或临时强制初始化：
+
+```powershell
+$env:GUANGPENG_FORCE_INIT = "1"
+powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
+```
+
+### 前端能开但登录失败
+
+确认用的是 **4173** 而不是只开了 8080；并确认第 5 步后端探测成功。
+
+---
+
+## 包内文件说明（一般不用手动碰）
+
+| 文件/目录 | 作用 |
+|-----------|------|
+| `Start-Guangpeng.ps1` | 一键启动 |
+| `Stop-Guangpeng.ps1` | 停止 jar / 前端 |
+| `zhihui-guangpeng.jar` | 后端 |
+| `web-dist/` | 前端页面 |
+| `infra/` | Docker、SQL、MQTT 模拟脚本（`infra/scripts/`） |
+| `config/` | 密钥（首次自动生成 `application-secret.yml`） |
+| `tools/init-db.ps1` | 建库脚本（启动时按需调用） |
+
+---
+
+## 版本
+
+- 产品：**智慧光棚**  
+- 工程 ID：`zhihui-guangpeng`  
+- 本包版本：`{{VERSION}}`

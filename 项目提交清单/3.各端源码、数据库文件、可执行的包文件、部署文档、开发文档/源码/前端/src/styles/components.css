@@ -1,0 +1,633 @@
+/* Shared UI — Apple-like cards, controls, tables */
+
+.ui-page {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--shadow-bleed);
+  box-sizing: border-box;
+}
+
+/* 撑满右侧内容区，优先压缩内部记录列表 */
+.ui-page-fill {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+
+.ui-page-fill .fill-card {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ui-page-fill .fill-card > .ui-card-title,
+.ui-page-fill .fill-card > .head,
+.ui-page-fill .fill-card > .ui-filter-bar,
+.ui-page-fill .fill-card > .cal-note {
+  flex-shrink: 0;
+}
+
+.ui-page-fill > .lights-top {
+  flex-shrink: 0;
+}
+
+.ui-page-fill .chart-card {
+  flex-shrink: 0;
+}
+
+.ui-page-fill > .banner,
+.ui-page-fill > .toolbar {
+  flex-shrink: 0;
+}
+
+.ui-page-fill .records-card {
+  flex: 1 1 0;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ui-page-fill .records-card .ui-card-title {
+  flex-shrink: 0;
+  margin-bottom: var(--space-2);
+}
+
+/* 固定顶栏 + 下方可滚动主体 */
+.ui-page-fill > .page-hero,
+.ui-page-fill > .page-toolbar,
+.ui-page-fill > .devices-toolbar {
+  flex-shrink: 0;
+}
+
+.ui-scroll-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 下方主体：flex 分配高度，滚轮交给内部表格/列表 */
+.ui-fill-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 多个编组：仅编组列表区滚动；组内表格独立滚动 */
+.ui-groups-stack {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(48vh, 400px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ui-card {
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
+  padding: var(--space-5);
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-card-compact {
+  padding: var(--space-4);
+}
+
+.ui-card-title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+  letter-spacing: var(--tracking-tight);
+}
+
+.ui-section-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+  color: var(--ink);
+}
+
+.ui-desc {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.ui-label {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.ui-input,
+.ui-select {
+  font: inherit;
+  font-size: var(--text-base);
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  box-shadow: var(--shadow-inset);
+  color: var(--ink);
+  transition:
+    box-shadow var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.ui-input:focus,
+.ui-select:focus {
+  outline: none;
+  box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-soft);
+  background: var(--panel);
+}
+
+.ui-input::placeholder {
+  color: var(--ink-muted);
+}
+
+.ui-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.ui-btn {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 9px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-spring),
+    opacity var(--duration-fast);
+}
+
+.ui-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-btn-secondary {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-inset);
+}
+
+.ui-btn-secondary:hover:not(:disabled) {
+  background: var(--panel-secondary);
+}
+
+.ui-btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.ui-btn-ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.ui-btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ui-btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+
+.ui-btn-warm {
+  background: var(--sodium);
+  color: #fff;
+}
+
+.ui-btn-warm:hover:not(:disabled) {
+  background: #e68600;
+}
+
+.ui-btn-compact {
+  padding: 6px 12px;
+  font-size: var(--text-xs);
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.ui-msg {
+  font-size: var(--text-sm);
+  color: var(--online);
+  margin: 0;
+}
+
+.ui-msg-error {
+  color: var(--danger);
+}
+
+.ui-table-wrap {
+  overflow-x: auto;
+  margin-top: var(--space-2);
+}
+
+/* Apple-style inset list: hover fills edge-to-edge, square corners */
+.ui-table-panel {
+  margin-top: var(--space-2);
+  background: var(--panel);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
+  overflow: hidden;
+}
+
+.ui-table-panel .ui-table-wrap {
+  margin-top: 0;
+  overflow-x: auto;
+}
+
+/* 记录过多时在托盘内滚动，表头固定，不撑高整页 */
+.ui-table-panel--scroll .ui-table-wrap {
+  max-height: min(440px, calc(100vh - var(--table-scroll-offset, 280px)));
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 编组表格限高：优先级高于 --scroll，滚轮只滚组内条目 */
+.ui-table-panel.ui-table-panel--group .ui-table-wrap {
+  max-height: min(220px, 32vh);
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 在 fill 布局中占满剩余高度，优先被压缩 */
+.ui-table-panel--fill {
+  flex: 1 1 0;
+  min-height: var(--records-min-height, 120px);
+  display: flex;
+  flex-direction: column;
+  margin-top: 0;
+}
+
+.ui-table-panel--fill .ui-table-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ui-table-panel--scroll .ui-table thead th,
+.ui-table-panel--group .ui-table thead th,
+.ui-table-panel--fill .ui-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.ui-table-panel--scroll .ui-table tbody tr:last-child td,
+.ui-table-panel--group .ui-table tbody tr:last-child td,
+.ui-table-panel--fill .ui-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ui-table-panel .ui-table th:first-child,
+.ui-table-panel .ui-table td:first-child {
+  padding-left: var(--space-4);
+}
+
+.ui-table-panel .ui-table th:last-child,
+.ui-table-panel .ui-table td:last-child {
+  padding-right: var(--space-4);
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  table-layout: auto;
+}
+
+.ui-table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.ui-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.ui-table .col-time {
+  white-space: nowrap;
+  width: 1%;
+  font-size: var(--text-sm);
+}
+
+.ui-table .col-mono {
+  white-space: nowrap;
+  width: 1%;
+  font-size: var(--text-sm);
+}
+
+.ui-table .col-name {
+  white-space: nowrap;
+  min-width: 6em;
+}
+
+.ui-table .col-fill {
+  min-width: 10em;
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+.ui-table .col-actions {
+  width: 1%;
+  white-space: nowrap;
+  padding-right: 0;
+}
+
+.ui-table tbody tr {
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.ui-table tbody tr:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.ui-table tbody tr:hover td {
+  background: transparent;
+}
+
+.ui-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+.ui-pill[data-on='true'] {
+  background: var(--sodium-soft);
+  color: var(--sodium-deep);
+}
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.ui-badge.ok {
+  background: var(--online-soft);
+  color: #248a3d;
+}
+
+.ui-badge.pending {
+  background: var(--warning-soft);
+  color: #a66a00;
+}
+
+.ui-badge.timeout {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ui-badge.risk-high {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ui-badge.risk-medium {
+  background: var(--warning-soft);
+  color: #a66a00;
+}
+
+.ui-badge.risk-low {
+  background: var(--online-soft);
+  color: #248a3d;
+}
+
+.ui-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.ui-filter-bar .ui-input,
+.ui-filter-bar .ui-select {
+  min-width: 0;
+  flex: 1 1 140px;
+  max-width: 220px;
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+}
+
+.ui-link-card {
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.ui-link-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+/* 在可滚动/限高容器内不做上浮，避免阴影与圆角被裁切 */
+.ui-fill-body .ui-link-card:hover,
+.ui-groups-stack .ui-link-card:hover,
+.ui-scroll-panel .ui-link-card:hover {
+  transform: none;
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
+  background: var(--panel-secondary);
+}
+
+.ui-link-card:active {
+  transform: translateY(0);
+}
+
+.ui-stat-value {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+}
+
+.ui-stat-value.ok { color: var(--online); }
+.ui-stat-value.on { color: var(--sodium); }
+.ui-stat-value.bad { color: var(--danger); }
+
+.ui-empty {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-4) 0 0;
+}
+
+.ui-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--paper);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+}
+
+.ui-tabs button {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 9px 12px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast);
+}
+
+.ui-tabs button.on {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.ui-mode-tag {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+
+.ui-mode-tag[data-manual='true'] {
+  color: var(--sodium);
+  font-weight: 600;
+}
+
+/* Fixed-width row actions — no layout shift on mode change */
+.ui-action-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+}
+
+.ui-segment {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  background: var(--paper);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-inset);
+}
+
+.ui-segment button {
+  min-width: 46px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast),
+    box-shadow var(--duration-fast);
+}
+
+.ui-segment button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.ui-segment button.on {
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.ui-segment button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+}

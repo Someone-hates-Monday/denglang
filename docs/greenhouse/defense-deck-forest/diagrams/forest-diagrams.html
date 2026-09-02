@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>智慧光棚 · 闭环与架构 · 森林墨</title>
+<style>
+  :root {
+    --ink: #1a2e1f;
+    --paper: #f5f1e8;
+    --paper-tint: #ece7da;
+    --accent: #3d6b52;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1920px; height: 1080px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+    overflow: hidden;
+  }
+  .page {
+    width: 1920px; height: 1080px;
+    padding: 40px 48px 36px;
+    display: none;
+    flex-direction: column;
+  }
+  .page.on { display: flex; }
+  .meta {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 15px; letter-spacing: .2em; text-transform: uppercase;
+    opacity: .5; margin-bottom: 10px;
+  }
+  h1 {
+    font-size: 44px; font-weight: 700; letter-spacing: -.02em;
+    line-height: 1.12; margin-bottom: 8px;
+  }
+  .lead {
+    font-family: "Noto Sans SC", sans-serif;
+    font-size: 24px; line-height: 1.4; opacity: .78; max-width: 1680px;
+    margin-bottom: 22px;
+  }
+  .stage { flex: 1; min-height: 0; display: grid; gap: 22px; align-content: stretch; }
+
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr auto 1fr;
+    gap: 10px;
+    align-items: stretch;
+    min-height: 0;
+  }
+  .node {
+    background: rgba(26,46,31,.07);
+    border: 0;
+    border-radius: 0;
+    padding: 36px 22px;
+    display: flex; flex-direction: column; gap: 14px;
+    justify-content: center;
+    min-height: 300px;
+  }
+  .arrow {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 56px; font-weight: 700; color: var(--accent); line-height: 1;
+    padding: 0 4px;
+  }
+  .node .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 18px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  .node .t { font-size: 48px; font-weight: 700; line-height: 1.1; }
+  .node .d {
+    font-family: "Noto Sans SC", sans-serif;
+    font-size: 26px; line-height: 1.4; opacity: .78;
+  }
+  .gate {
+    background: var(--ink);
+    color: var(--paper);
+    border: 0;
+    border-radius: 0;
+    padding: 30px 34px;
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 28px;
+    font-family: "Noto Sans SC", sans-serif;
+  }
+  .gate strong { font-family: "Noto Serif SC", serif; font-size: 30px; display: block; margin-bottom: 10px; }
+  .gate p { font-size: 22px; line-height: 1.45; opacity: .9; }
+
+  .layers { display: grid; grid-template-rows: repeat(4, 1fr); gap: 14px; }
+  .layer {
+    border: 0;
+    border-radius: 0;
+    background: rgba(26,46,31,.07);
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 20px;
+    align-items: center;
+  }
+  .layer .lbl {
+    font-size: 30px; font-weight: 700;
+    border-left: 8px solid var(--accent);
+    padding-left: 16px;
+  }
+  .layer .cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .layer .card {
+    background: rgba(245,241,232,.65);
+    border: 0;
+    border-radius: 0;
+    padding: 16px 18px;
+    font-family: "Noto Sans SC", sans-serif;
+    font-size: 20px; line-height: 1.35;
+  }
+  .layer .card b { display: block; font-family: "Noto Serif SC", serif; font-size: 24px; margin-bottom: 6px; }
+  .l4 { background: var(--ink); color: var(--paper); }
+  .l4 .card { background: rgba(245,241,232,.12); color: var(--paper); }
+</style>
+</head>
+<body>
+  <div class="page on" id="p-loop">
+    <div class="meta">智慧光棚 · Forest Ink · Closed Loop</div>
+    <h1>测光 → 比对 → 调控 → 审批 → 可追溯</h1>
+    <p class="lead">以冠层有效光（PPFD / DLI）为目标带：仿真日型推进欠光/过光，自动补光遮阳；大开度变更进入工单闸门，权责分离后落控制日志。</p>
+    <div class="stage">
+      <div class="flow">
+        <div class="node"><div class="n">01 Sense</div><div class="t">测光</div><div class="d">PAR 测点 · 冠层切片 · 日型仿真</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="n">02 Compare</div><div class="t">比对</div><div class="d">作物配方目标带 · 硬限 / 审批阈值</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="n">03 Act</div><div class="t">调控</div><div class="d">补光调光 · 遮阳开度 · MQTT 下行</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="n">04 Gate</div><div class="t">审批</div><div class="d">≥80% 大开度 → 待批工单</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="n">05 Trace</div><div class="t">追溯</div><div class="d">AUTO / MANUAL / 工单日志</div></div>
+      </div>
+      <div class="gate">
+        <div><strong>人员闸门</strong><p>农艺师批准 ≠ 下发；种植员接单执行后才真正改灯。</p></div>
+        <div><strong>棚体设计</strong><p>双跨石斛床 · 双层补光 · 三维灯位与光场热力同屏。</p></div>
+        <div><strong>Agent</strong><p>光棚顾问读现场上下文；不替代控光主链路。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="p-arch">
+    <div class="meta">智慧光棚 · Forest Ink · Architecture</div>
+    <h1>感知 — 传输 — 平台 — 应用 — 执行</h1>
+    <p class="lead">四层协同：端侧设备经 EMQX 进出，业务在 Spring Boot + PostgreSQL，前端控台承载光场 / 工单 / 分权，顾问仅挂在应用层。</p>
+    <div class="stage layers">
+      <div class="layer l1">
+        <div class="lbl">呈现层</div>
+        <div class="cards">
+          <div class="card"><b>冠层光场 3D</b>灯位 · 热力 · 分区</div>
+          <div class="card"><b>现场调控</b>配方 · 开度 · AUTO</div>
+          <div class="card"><b>工单 / 日志</b>审批 · 接单 · 追溯</div>
+          <div class="card"><b>光棚顾问</b>RAG 问答 · 只读</div>
+        </div>
+      </div>
+      <div class="layer l2">
+        <div class="lbl">应用层</div>
+        <div class="cards">
+          <div class="card"><b>配方引擎</b>作物目标带解耦</div>
+          <div class="card"><b>控光规则</b>欠光补 / 过光降</div>
+          <div class="card"><b>工单状态机</b>批准 · 接单 · 完成</div>
+          <div class="card"><b>RBAC</b>六角色 JWT 守卫</div>
+        </div>
+      </div>
+      <div class="layer l3">
+        <div class="lbl">数据层</div>
+        <div class="cards">
+          <div class="card"><b>gh_zones / devices</b>棚体与台账</div>
+          <div class="card"><b>gh_recipes</b>配方与阈值</div>
+          <div class="card"><b>work_orders / logs</b>审计轨迹</div>
+          <div class="card"><b>knowledge</b>顾问知识块</div>
+        </div>
+      </div>
+      <div class="layer l4">
+        <div class="lbl">接入层</div>
+        <div class="cards">
+          <div class="card"><b>EMQX MQTT</b>遥测上行 · 指令下行</div>
+          <div class="card"><b>仿真适配</b>灯 / PAR / 遮阳</div>
+          <div class="card"><b>可选 BearPi</b>实板桥接开闭</div>
+          <div class="card"><b>重庆日型</b>一天压缩仿真</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const q = new URLSearchParams(location.search).get('page') || 'loop';
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+    const map = { loop: 'p-loop', arch: 'p-arch' };
+    document.getElementById(map[q] || 'p-loop').classList.add('on');
+  </script>
+</body>
+</html>

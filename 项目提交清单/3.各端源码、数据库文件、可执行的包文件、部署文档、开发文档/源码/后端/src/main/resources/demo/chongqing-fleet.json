@@ -1,0 +1,104 @@
+{
+  "groups": [
+    {
+      "name": "重大校园",
+      "district": "沙坪坝区",
+      "color": "#0071E3",
+      "lamps": [
+        { "sn": "SN-RM-001", "name": "沙正街001号路灯", "lat": 29.5644, "lng": 106.4662, "status": "OFF", "online": "OFFLINE" },
+        { "sn": "SN-RM-002", "name": "沙正街002号路灯", "lat": 29.5648, "lng": 106.4680, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-RM-003", "name": "沙正街003号路灯", "lat": 29.5652, "lng": 106.4700, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-XQ-001", "name": "校园主道路灯", "lat": 29.5660, "lng": 106.4692, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-CQU-005", "name": "民主湖路灯", "lat": 29.5638, "lng": 106.4695, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-CQU-006", "name": "A区北门路灯", "lat": 29.5672, "lng": 106.4678, "status": "ON", "online": "ONLINE" }
+      ]
+    },
+    {
+      "name": "三峡广场",
+      "district": "沙坪坝区",
+      "color": "#AF52DE",
+      "lamps": [
+        { "sn": "SN-SX-001", "name": "三峡广场东路灯", "lat": 29.5578, "lng": 106.4542, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-SX-002", "name": "三峡广场中路灯", "lat": 29.5572, "lng": 106.4558, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-SX-003", "name": "三峡广场西路灯", "lat": 29.5566, "lng": 106.4574, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-SX-004", "name": "小龙坎正街灯", "lat": 29.5586, "lng": 106.4530, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-SX-005", "name": "汉渝路路口灯", "lat": 29.5558, "lng": 106.4568, "status": "OFF", "online": "ONLINE" }
+      ]
+    },
+    {
+      "name": "解放碑",
+      "district": "渝中区",
+      "color": "#FF6B4A",
+      "lamps": [
+        { "sn": "SN-JFB-001", "name": "民权路西段灯", "lat": 29.5571, "lng": 106.5738, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-JFB-002", "name": "民权路中段灯", "lat": 29.5574, "lng": 106.5756, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-JFB-003", "name": "解放碑路口灯", "lat": 29.5577, "lng": 106.5774, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-JFB-004", "name": "民族路东段灯", "lat": 29.5580, "lng": 106.5792, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-JFB-005", "name": "较场口路灯", "lat": 29.5564, "lng": 106.5762, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-JFB-006", "name": "邹容路路灯", "lat": 29.5588, "lng": 106.5768, "status": "ON", "online": "ONLINE" }
+      ]
+    },
+    {
+      "name": "朝天门",
+      "district": "渝中区",
+      "color": "#FF9F0A",
+      "lamps": [
+        { "sn": "SN-CTM-001", "name": "朝天门广场灯", "lat": 29.5657, "lng": 106.5874, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-CTM-002", "name": "嘉陵江滨江灯", "lat": 29.5668, "lng": 106.5856, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-CTM-003", "name": "长江索道路口灯", "lat": 29.5646, "lng": 106.5868, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-CTM-004", "name": "东水门大桥灯", "lat": 29.5638, "lng": 106.5892, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-CTM-005", "name": "湖广会馆路灯", "lat": 29.5674, "lng": 106.5886, "status": "OFF", "online": "ONLINE" }
+      ]
+    },
+    {
+      "name": "观音桥",
+      "district": "江北区",
+      "color": "#30D158",
+      "lamps": [
+        { "sn": "SN-GYQ-001", "name": "观音桥步行街灯", "lat": 29.5770, "lng": 106.5345, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-GYQ-002", "name": "建新东路灯", "lat": 29.5762, "lng": 106.5368, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-GYQ-003", "name": "建新西路灯", "lat": 29.5778, "lng": 106.5322, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-GYQ-004", "name": "北城天街路口灯", "lat": 29.5754, "lng": 106.5336, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-GYQ-005", "name": "华新街路灯", "lat": 29.5788, "lng": 106.5358, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-GYQ-006", "name": "红旗河沟灯", "lat": 29.5746, "lng": 106.5378, "status": "OFF", "online": "ONLINE" }
+      ]
+    },
+    {
+      "name": "南坪",
+      "district": "南岸区",
+      "color": "#64D2FF",
+      "lamps": [
+        { "sn": "SN-NP-001", "name": "南坪步行街灯", "lat": 29.5285, "lng": 106.5749, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-NP-002", "name": "南坪东路灯", "lat": 29.5278, "lng": 106.5772, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-NP-003", "name": "南坪西路灯", "lat": 29.5294, "lng": 106.5726, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-NP-004", "name": "亚太商谷路口灯", "lat": 29.5268, "lng": 106.5740, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-NP-005", "name": "南滨路灯", "lat": 29.5306, "lng": 106.5788, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-NP-006", "name": "四公里立交灯", "lat": 29.5254, "lng": 106.5718, "status": "OFF", "online": "ONLINE" }
+      ]
+    },
+    {
+      "name": "杨家坪",
+      "district": "九龙坡区",
+      "color": "#FFD60A",
+      "lamps": [
+        { "sn": "SN-YJP-001", "name": "杨家坪步行街灯", "lat": 29.5162, "lng": 106.5140, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-YJP-002", "name": "西郊路灯", "lat": 29.5154, "lng": 106.5164, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-YJP-003", "name": "直港大道灯", "lat": 29.5172, "lng": 106.5118, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-YJP-004", "name": "谢家湾路口灯", "lat": 29.5146, "lng": 106.5132, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-YJP-005", "name": "石坪桥路灯", "lat": 29.5184, "lng": 106.5156, "status": "OFF", "online": "OFFLINE" }
+      ]
+    },
+    {
+      "name": "冉家坝",
+      "district": "渝北区",
+      "color": "#BF5AF2",
+      "lamps": [
+        { "sn": "SN-RJB-001", "name": "龙山大道路灯", "lat": 29.6058, "lng": 106.5102, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-RJB-002", "name": "冉家坝公园灯", "lat": 29.6046, "lng": 106.5126, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-RJB-003", "name": "新南路灯", "lat": 29.6070, "lng": 106.5084, "status": "OFF", "online": "ONLINE" },
+        { "sn": "SN-RJB-004", "name": "松牌路路口灯", "lat": 29.6038, "lng": 106.5090, "status": "ON", "online": "ONLINE" },
+        { "sn": "SN-RJB-005", "name": "汽博中心路灯", "lat": 29.6084, "lng": 106.5138, "status": "ON", "online": "ONLINE" }
+      ]
+    }
+  ]
+}

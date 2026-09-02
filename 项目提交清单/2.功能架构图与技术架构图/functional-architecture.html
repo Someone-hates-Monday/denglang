@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>智慧光棚 · 功能架构图</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width: 1600px; height: 1000px;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f6f9f6; overflow:hidden;
+  }
+  .title { position:absolute; top:20px; left:0; right:0; text-align:center; font-size:30px; font-weight:700; color:#1e3a2e; letter-spacing:2px; }
+  .subtitle { position:absolute; top:62px; left:0; right:0; text-align:center; font-size:15px; color:#6b7d72; }
+
+  .layer {
+    position:absolute; left:70px; right:70px;
+    border-radius:18px; padding:14px 20px 18px;
+    box-shadow:0 6px 18px rgba(0,0,0,.07);
+  }
+  .layer .lbl {
+    font-size:15px; font-weight:700; margin-bottom:12px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .layer .lbl .bar { width:6px; height:18px; border-radius:3px; }
+  .cards { display:flex; gap:14px; justify-content:space-between; }
+  .card {
+    flex:1; background:#fff; border-radius:12px; padding:13px 14px;
+    border:1px solid #dbe7df; font-size:13px; line-height:1.5; color:#223a2e;
+    box-shadow:0 2px 6px rgba(0,0,0,.05);
+  }
+  .card .t { font-weight:700; font-size:14px; display:block; margin-bottom:6px; }
+  .card .t::before { content:"▪"; margin-right:5px; }
+  .card ul { list-style:none; }
+  .card li { padding-left:12px; position:relative; }
+  .card li::before { content:"·"; position:absolute; left:2px; color:#4c8a6b; font-weight:800; }
+
+  /* 四层 */
+  #p1 { top:96px; height:210px; background:#eef7ef; }
+  #p1 .bar { background:#4c8a6b; } #p1 .t::before { color:#4c8a6b; }
+  #p2 { top:324px; height:300px; background:#eaf3f1; }
+  #p2 .bar { background:#2f6f8f; } #p2 .t::before { color:#2f6f8f; }
+  #p3 { top:642px; height:180px; background:#f3efec; }
+  #p3 .bar { background:#b07a4a; } #p3 .t::before { color:#b07a4a; }
+  #p4 { top:840px; height:120px; background:#f0f0f5; }
+  #p4 .bar { background:#6b5b8f; } #p4 .t::before { color:#6b5b8f; }
+
+  .arrow { position:absolute; left:50%; transform:translateX(-50%); color:#7aa389; font-size:18px; }
+  .tag { position:absolute; bottom:10px; left:0; right:0; text-align:center; font-size:12px; color:#8a9a90; }
+</style>
+</head>
+<body>
+  <div class="title">智慧光棚 · 功能架构图</div>
+  <div class="subtitle">四层：呈现 → 应用 → 数据 → 接入 · 光环境闭环为主线</div>
+
+  <!-- 呈现层 -->
+  <div class="layer" id="p1">
+    <div class="lbl"><span class="bar"></span>呈现层 · Web 控制台（Vue3）</div>
+    <div class="cards">
+      <div class="card"><span class="t">场务总览</span><ul><li>全场 PPFD/DLI/遮阳</li><li>AUTO 策略开关</li><li>告警摘要</li></ul></div>
+      <div class="card"><span class="t">冠层光场 3D</span><ul><li>3D 棚体 + 热力切片</li><li>配方切换 / 光谱</li><li>全日光照曲线</li></ul></div>
+      <div class="card"><span class="t">工单</span><ul><li>审批 / 接单 / 完成</li><li>状态机流转</li><li>审计可查</li></ul></div>
+      <div class="card"><span class="t">设备 · 日志 · 报告</span><ul><li>设备档案/在线</li><li>控制日志</li><li>报告与实训</li></ul></div>
+      <div class="card"><span class="t">农艺助手</span><ul><li>悬浮问答</li><li>知识库 + RAG</li><li>只读建议</li></ul></div>
+    </div>
+  </div>
+
+  <div class="arrow" style="top:306px;">▼</div>
+
+  <!-- 应用层 -->
+  <div class="layer" id="p2">
+    <div class="lbl"><span class="bar"></span>应用层 · Spring Boot 业务服务</div>
+    <div class="cards">
+      <div class="card"><span class="t">配方引擎</span><ul><li>作物配方 CRUD</li><li>目标带/硬限</li><li>配方绑定切换</li></ul></div>
+      <div class="card"><span class="t">控光规则</span><ul><li>欠光补光</li><li>过光遮阳优先</li><li>冷却防抖 · 步进</li></ul></div>
+      <div class="card"><span class="t">工单审批</span><ul><li>大开度 ≥80 门控</li><li>approve≠execute</li><li>状态机 6 态</li></ul></div>
+      <div class="card"><span class="t">告警</span><ul><li>欠/过 PPFD</li><li>离线</li><li>指令超时</li></ul></div>
+      <div class="card"><span class="t">重庆日型仿真</span><ul><li>冬雾/夏正午</li><li>一天压缩 120s</li><li>空间光场模型</li></ul></div>
+      <div class="card"><span class="t">权限与协同</span><ul><li>JWT 六角色</li><li>权限申请/联系</li><li>报告体系</li></ul></div>
+    </div>
+  </div>
+
+  <div class="arrow" style="top:624px;">▼</div>
+
+  <!-- 数据层 -->
+  <div class="layer" id="p3">
+    <div class="lbl"><span class="bar"></span>数据层 · PostgreSQL（pgvector :5433）</div>
+    <div class="cards">
+      <div class="card"><span class="t">档案库</span><ul><li>gh_zones · gh_devices</li><li>gh_lamps · gh_shades</li></ul></div>
+      <div class="card"><span class="t">配方与光况</span><ul><li>gh_recipes</li><li>telemetry 时序</li></ul></div>
+      <div class="card"><span class="t">工单与日志</span><ul><li>gh_work_orders</li><li>gh_control_logs · alarms</li></ul></div>
+      <div class="card"><span class="t">账号与知识</span><ul><li>users · roles</li><li>knowledge_chunks(RAG)</li></ul></div>
+    </div>
+  </div>
+
+  <div class="arrow" style="top:822px;">▼</div>
+
+  <!-- 接入层 -->
+  <div class="layer" id="p4">
+    <div class="lbl"><span class="bar"></span>接入层 · MQTT（EMQX :1883）与设备</div>
+    <div class="cards">
+      <div class="card"><span class="t">仿真适配器</span><ul><li>PAR 测点 · 灯 · 遮阳</li></ul></div>
+      <div class="card"><span class="t">遥测/状态上行</span><ul><li>telemetry · status · ack</li></ul></div>
+      <div class="card"><span class="t">指令下行</span><ul><li>SET_DIMMING · SET_OPEN_PERCENT</li></ul></div>
+      <div class="card"><span class="t">真机预留</span><ul><li>RS-GZ / BH1750</li></ul></div>
+    </div>
+  </div>
+
+  <div class="tag">智慧光棚 · 功能架构图（对应提交清单第 2 项）</div>
+</body>
+</html>

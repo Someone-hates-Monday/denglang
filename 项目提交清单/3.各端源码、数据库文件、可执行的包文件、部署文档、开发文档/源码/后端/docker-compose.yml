@@ -1,0 +1,87 @@
+# 本地联调基础设施：PostgreSQL(pgvector) + EMQX
+# 光棚仿真在 Spring Boot 进程内（greenhouse.sim），不另起容器。
+# 路灯模拟灯可选：docker compose --profile lamp-fleet up -d
+# 光棚 MQTT 硬件路径（command ACK）：docker compose --profile gh-hw-sim up -d
+#
+# 用法：
+#   docker compose up -d
+#   docker compose --profile lamp-fleet up -d   # 另起 7 盏路灯 MQTT 模拟
+#   docker compose --profile gh-hw-sim up -d    # 光棚执行器 ACK + 心跳
+#   docker compose --profile lamp-fleet down    # 停掉含 fleet 的栈时用
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: streetlight-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123456"
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    ports:
+      - "5433:5432"
+    volumes:
+      - streetlight_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  emqx:
+    image: emqx/emqx:5.8.3
+    container_name: streetlight-emqx
+    ports:
+      - "1883:1883"
+      - "18083:18083"
+    environment:
+      EMQX_ALLOW_ANONYMOUS: "true"
+      TZ: Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # 路灯页演示用；光棚不依赖。与 streetlight.demo.mock-keepalive 勿双开。
+  lamp-fleet:
+    profiles: ["lamp-fleet"]
+    image: eclipse-mosquitto:2
+    container_name: streetlight-fleet-sim
+    network_mode: "service:emqx"
+    environment:
+      INTERVAL_SEC: "8"
+      BROKER_HOST: "127.0.0.1"
+      BROKER_PORT: "1883"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./scripts/mqtt-fleet-loop.sh:/fleet-loop.sh:ro
+    command: ["sh", "/fleet-loop.sh"]
+    depends_on:
+      emqx:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 光棚硬件路径：订阅 command 回 status；可与进程内仿真并行（sim.* 仍本地 SUCCESS）
+  gh-hw-sim:
+    profiles: ["gh-hw-sim"]
+    image: eclipse-mosquitto:2
+    container_name: streetlight-gh-hw-sim
+    network_mode: "service:emqx"
+    environment:
+      INTERVAL_SEC: "4"
+      BROKER_HOST: "127.0.0.1"
+      BROKER_PORT: "1883"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./scripts/mqtt-greenhouse-loop.sh:/gh-loop.sh:ro
+    command: ["sh", "/gh-loop.sh"]
+    depends_on:
+      emqx:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  streetlight_pg_data:

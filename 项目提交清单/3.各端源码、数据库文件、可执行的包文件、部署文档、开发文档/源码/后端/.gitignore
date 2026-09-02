@@ -1,0 +1,17 @@
+**/node_modules/
+**/dist/
+**/target/
+**/.claude
+**/.VSCodeCounter
+
+### IntelliJ IDEA ###
+.idea
+
+### VS Code ###
+.vscode/
+
+### æ•æ„Ÿé…ç½®æ–‡ä»¶ï¼ˆå¯†ç ã€å¯†é’¥ç­‰ï¼‰
+**/application-secret.yml
+# ÔËĞĞÄ¿Â¼ÅÔµÄÅäÖÃ¸±±¾£¨java -jar Ê±´Ó cwd ¼ÓÔØ£¬ÎğÌá½»£©
+/application-local.yml
+/application.yml

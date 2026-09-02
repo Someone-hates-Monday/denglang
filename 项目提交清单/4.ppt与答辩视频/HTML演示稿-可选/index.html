@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智慧光棚 · 答辩演示</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+      <!-- 01 封面 -->
+      <section id="title" class="section-divider" data-state="is-section-divider">
+        <p class="kicker">DEFENSE · IOT</p>
+        <h1>智慧光棚</h1>
+        <p class="text-xl" style="margin-top: 18px;">设施农业光环境闭环管控平台</p>
+        <p class="text-lg" style="margin-top: 28px; color: #E07A2F !important;">感知 → 传输 → 平台 → 应用 → 执行</p>
+        <p class="text-muted" style="margin-top: 16px; color: #A8B8AE !important;">测光 · 比对 · 调控 · 审批 · 可追溯</p>
+        <aside class="notes">
+          开场：重庆寡照多雾，设施作物长期欠光。我们把测光、比对、调控、审批串成闭环。
+          顺序：场景 → 架构 → 闭环演示 → 设备通道 → 权责 → 顾问加分 → 交付。
+        </aside>
+      </section>
+
+      <!-- 02 场景 -->
+      <section id="scene">
+        <p class="chapter">01 · 场景与目标</p>
+        <h2>为什么做智慧光棚</h2>
+        <div class="content" style="display: grid; grid-template-columns: 1fr 1.55fr; gap: 28px; min-height: 0;">
+          <div class="rail-card">
+            <ul class="text-lg">
+              <li>痛点：寡照欠光 + 经验调光</li>
+              <li>目标：冠层有效光闭环</li>
+              <li>闭环：测光 → 比对 → 调控</li>
+              <li>安全：大开度走工单审批</li>
+              <li>交付：源码 / 发布包 / 文档</li>
+            </ul>
+          </div>
+          <div style="min-height: 0; display: flex; flex-direction: column;">
+            <img class="shot" src="img/02-login.png" alt="登录六角色">
+          </div>
+        </div>
+        <aside class="notes">
+          镜2：重庆寡照……把测光、比对、调控、审批串成闭环。指登录页说明六角色入口。
+        </aside>
+      </section>
+
+      <!-- 03 架构 -->
+      <section id="architecture">
+        <p class="chapter">02 · 总体架构</p>
+        <h2>感知 — 传输 — 平台 — 应用 — 执行</h2>
+        <div class="content" style="min-height: 0;">
+          <img class="shot" src="img/00-architecture.png" alt="功能架构图">
+          <p class="caption">端侧灯/PAR/遮阳（仿真+可选 BearPi）· MQTT/EMQX · Spring Boot + PostgreSQL · 前端控台 · Agent 仅应用层</p>
+        </div>
+        <aside class="notes">讲层次：Agent 是应用层顾问，不是系统脊柱。</aside>
+      </section>
+
+      <!-- 04 3D -->
+      <section id="canopy">
+        <p class="chapter">03 · 闭环演示</p>
+        <h2>冠层光场 · 三维灯位与 PPFD</h2>
+        <div class="content" style="min-height: 0;">
+          <img class="shot" src="img/03-greenhouse-3d.png" alt="场务光场三维">
+          <p class="caption">卖点：有效光 / 光态 / DLI / 在线设备一眼可见；弱机可关「光场热力」</p>
+        </div>
+        <aside class="notes">镜3：3D 棚体与冠层 PPFD；全日曲线随重庆日型推进。配方切换可口头带过。</aside>
+      </section>
+
+      <!-- 05 设备 -->
+      <section id="devices">
+        <p class="chapter">04 · 设备与执行</p>
+        <h2>台账 · MQTT 在线 · 调光记日志</h2>
+        <div class="content" style="display: grid; grid-template-columns: 1fr 1.55fr; gap: 28px; min-height: 0;">
+          <div class="rail-card">
+            <ul class="text-lg">
+              <li>102 台与光场同一套 SN</li>
+              <li>补光灯 / PAR / 遮阳分区</li>
+              <li>运维可强制调光并落日志</li>
+              <li>底层 EMQX，数据落库</li>
+              <li>可选 BearPi 实板桥接</li>
+            </ul>
+          </div>
+          <div style="min-height: 0; display: flex;">
+            <img class="shot" src="img/04-devices.png" alt="设备台账">
+          </div>
+        </div>
+        <aside class="notes">镜7：设备页证明在线与指令通道；可提虚拟灯桥接到实板开闭。</aside>
+      </section>
+
+      <!-- 06 权责 -->
+      <section id="rbac">
+        <p class="chapter">05 · 权责可追溯</p>
+        <h2>控制日志 + 六角色分权</h2>
+        <div class="content" style="display: grid; grid-template-columns: 0.9fr 1.2fr 1.2fr; gap: 18px; min-height: 0;">
+          <div class="rail-card">
+            <ul>
+              <li>≥80% 大开度 → 待批工单</li>
+              <li>批准 ≠ 下发，接单才执行</li>
+              <li>日志：AUTO / MANUAL / 工单</li>
+              <li>六角色权责分离</li>
+            </ul>
+          </div>
+          <div style="min-height: 0; display: flex;">
+            <img class="shot" src="img/05-control-logs.png" alt="控制日志">
+          </div>
+          <div style="min-height: 0; display: flex;">
+            <img class="shot" src="img/06-users.png" alt="用户角色">
+          </div>
+        </div>
+        <aside class="notes">镜5–6 关键卖点：审批与执行分离，全程可查。</aside>
+      </section>
+
+      <!-- 07 顾问 -->
+      <section id="advisor">
+        <p class="chapter">06 · 应用层加分</p>
+        <h2>光棚顾问 · 不替代控光闭环</h2>
+        <div class="content" style="display: grid; grid-template-columns: 1fr 1.55fr; gap: 28px; min-height: 0;">
+          <div class="rail-card">
+            <ul class="text-lg">
+              <li>读现场上下文作答</li>
+              <li>棚况 / MQTT / 角色快捷问</li>
+              <li>≤1 分钟带过</li>
+              <li>主链路不依赖大模型</li>
+            </ul>
+          </div>
+          <div style="min-height: 0; display: flex;">
+            <img class="shot" src="img/07-advisor.png" alt="光棚顾问">
+          </div>
+        </div>
+        <aside class="notes">镜8：顾问是加分模块，控光主链路独立。</aside>
+      </section>
+
+      <!-- 08 收尾 -->
+      <section id="close">
+        <p class="chapter">07 · 交付与答辩要点</p>
+        <h2>可演示 · 可部署 · 可追问</h2>
+        <div class="content">
+          <div class="rail-card" style="padding: 28px 32px;">
+            <ul class="close-list text-xl">
+              <li>已交付：源码、数据库脚本、一键发布包、部署与开发文档</li>
+              <li>演示账号：<strong>admin / admin123</strong> · 演示角色密码 <strong>demo123</strong></li>
+              <li>工程点：配方目标带 · 大开度工单闸门 · MQTT 指令与日志 · 三维光场</li>
+              <li>局限与下一步：弱机 3D/仿真性能 · 实板覆盖扩展 · 规则与配方沉淀</li>
+              <li>谢谢老师，欢迎提问</li>
+            </ul>
+          </div>
+        </div>
+        <aside class="notes">
+          收尾呼应提交清单。Agent=加分模块；硬件以仿真为主、可选 BearPi 证下行；
+          部署用发布包 Start-Guangpeng.ps1 + Docker PG/EMQX。
+        </aside>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+  <script>
+    const isExport = window.location.search.includes('export');
+    Reveal.initialize({
+      width: 1280,
+      height: 720,
+      margin: 0.04,
+      controls: !isExport,
+      progress: !isExport,
+      slideNumber: isExport ? false : 'c/t',
+      hash: true,
+      transition: 'none',
+      backgroundTransition: 'none',
+      center: false,
+      plugins: [RevealNotes]
+    });
+  </script>
+</body>
+</html>
