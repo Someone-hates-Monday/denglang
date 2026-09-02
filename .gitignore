@@ -21,6 +21,9 @@ firmware/bearpi-hm_nano/
 **/.env.*
 !**/.env.example
 
+# --- local deploy smoke test (not for commit) ---
+/guangpeng-deploy-test/
+
 # --- local release binaries (use GitHub Releases for zip) ---
 /release/**
 !/release/README.md

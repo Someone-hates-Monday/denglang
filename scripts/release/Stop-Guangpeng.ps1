@@ -1,4 +1,4 @@
-# 停止发布包拉起的前后端进程（不关 Docker）
+﻿# 停止发布包拉起的前后端进程（不关 Docker）
 $ErrorActionPreference = "Continue"
 $PackRoot = $PSScriptRoot
 $PidDir = Join-Path $PackRoot ".run"

@@ -225,7 +225,9 @@ docker ps
 
 ```powershell
 Get-Content .\.run\backend.log -Tail 50
+Get-Content .\.run\backend.err -Tail 50
 Get-Content .\.run\frontend.log -Tail 50
+Get-Content .\.run\frontend.err -Tail 50
 ```
 
 ### 前端能开但登录失败

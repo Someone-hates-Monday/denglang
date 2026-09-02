@@ -1,4 +1,4 @@
-# 发布包内数据库初始化
+﻿# 发布包内数据库初始化
 param(
   [Parameter(Mandatory = $true)][string]$PackRoot
 )

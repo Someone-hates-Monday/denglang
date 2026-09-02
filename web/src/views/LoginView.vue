@@ -11,6 +11,8 @@ import {
 } from '../auth/rbac'
 import BrandIcon from '../components/BrandIcon.vue'
 
+const apiBase = (import.meta.env.VITE_API_BASE as string) || ''
+
 const auth = useAuthStore()
 const router = useRouter()
 
@@ -29,7 +31,7 @@ async function checkBackend() {
     return
   }
   try {
-    const res = await fetch('/users/login', {
+    const res = await fetch(`${apiBase}/users/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: '__ping__', password: '__ping__' }),

@@ -1,4 +1,4 @@
-# 智慧光棚一键启动（发布包内运行）
+﻿# 智慧光棚一键启动（发布包内运行）
 # 依赖：Docker Desktop、JDK 21、可选 Node（用于 npx serve）
 $ErrorActionPreference = "Stop"
 # 本脚本与 jar 同目录（发布包根）
@@ -47,7 +47,17 @@ if (-not (Test-Path $Secret)) {
 
 Write-Host "==> 启动 PostgreSQL + EMQX..."
 Push-Location (Join-Path $PackRoot "infra")
-docker compose -f docker-compose.yml up -d postgres emqx
+$prevEa = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+docker compose -f docker-compose.yml up -d postgres emqx 2>&1 | Out-Null
+$composeExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEa
+if ($composeExit -ne 0) {
+  $pgUp = docker ps --filter "name=streetlight-pg" --filter "health=healthy" --format "{{.Names}}"
+  $emqxUp = docker ps --filter "name=streetlight-emqx" --format "{{.Names}}"
+  if (-not ($pgUp -and $emqxUp)) { throw "Docker 启动失败，请检查 docker compose 输出。" }
+  Write-Host "    容器已在运行，继续..."
+}
 Pop-Location
 
 Write-Host "==> 等待数据库就绪..."
@@ -77,11 +87,12 @@ if ($needInit) {
 
 Write-Host "==> 启动后端 http://localhost:8080 ..."
 $backendOut = Join-Path $PidDir "backend.log"
+$backendErr = Join-Path $PidDir "backend.err"
 $backend = Start-Process -FilePath "java" -ArgumentList @(
   "-jar", $Jar,
   "--spring.profiles.active=local,secret",
   "--spring.config.additional-location=optional:file:$($ConfigDir.Replace('\','/'))/"
-) -PassThru -WindowStyle Hidden -RedirectStandardOutput $backendOut -RedirectStandardError $backendOut
+) -PassThru -WindowStyle Hidden -RedirectStandardOutput $backendOut -RedirectStandardError $backendErr
 $backend.Id | Set-Content (Join-Path $PidDir "backend.pid")
 
 $apiOk = $false
@@ -101,10 +112,14 @@ if (-not $apiOk) {
 
 Write-Host "==> 启动前端静态站 http://localhost:4173 ..."
 Require-Cmd npm "请安装 Node.js（用于 npx serve）。"
+$nodeDir = Split-Path (Get-Command node -ErrorAction Stop).Source
+$npxExe = Join-Path $nodeDir "npx.cmd"
+if (-not (Test-Path $npxExe)) { throw "未找到 npx.cmd，请确认 Node.js 已安装。" }
 $frontOut = Join-Path $PidDir "frontend.log"
-$front = Start-Process -FilePath "npm" -ArgumentList @(
-  "exec", "--yes", "serve", "-s", $WebDist, "-l", "4173"
-) -PassThru -WindowStyle Hidden -RedirectStandardOutput $frontOut -RedirectStandardError $frontOut
+$frontErr = Join-Path $PidDir "frontend.err"
+$front = Start-Process -FilePath $npxExe -ArgumentList @(
+  "--yes", "serve", "-s", $WebDist, "-l", "4173"
+) -PassThru -WindowStyle Hidden -RedirectStandardOutput $frontOut -RedirectStandardError $frontErr
 $front.Id | Set-Content (Join-Path $PidDir "frontend.pid")
 
 Write-Host ""

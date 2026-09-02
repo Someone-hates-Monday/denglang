@@ -1,4 +1,4 @@
-# 打包智慧光棚「一键发布包」到 release/zhihui-guangpeng-<ver>/
+﻿# 打包智慧光棚「一键发布包」到 release/zhihui-guangpeng-<ver>/
 # 用法（仓库根目录）：
 #   powershell -ExecutionPolicy Bypass -File scripts\release\pack-release.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\release\pack-release.ps1 -Version 0.1.0
@@ -65,7 +65,9 @@ $readmeSrc = Join-Path $PSScriptRoot "RELEASE-README.md"
 $readme = (Get-Content $readmeSrc -Raw -Encoding UTF8) -replace '\{\{VERSION\}\}', $Version
 Set-Content -Path (Join-Path $OutDir "README.md") -Value $readme -Encoding UTF8
 
-# 7) zip
+# 7) zip（不含运行时产物）
+Remove-Item (Join-Path $OutDir ".run") -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $OutDir "config\application-secret.yml") -Force -ErrorAction SilentlyContinue
 $ZipPath = Join-Path $RepoRoot "release\$OutName.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path $OutDir -DestinationPath $ZipPath -Force
