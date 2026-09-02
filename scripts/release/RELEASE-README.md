@@ -33,8 +33,10 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 winget install -e --id Docker.DockerDesktop
 ```
 
-2. 安装后**打开 Docker Desktop**，等到状态为 Running（鲸鱼图标稳定）。  
-3. 检查：
+2. 安装完成后建议 **注销 Windows 或重启电脑一次**（否则 PATH 可能还没有 `docker`）。  
+3. **关掉旧的 PowerShell 窗口，重新打开** 一个新的 PowerShell。  
+4. 打开 **Docker Desktop**，等到左下角为 Running（鲸鱼图标稳定、无 “Starting…”）。  
+5. 检查：
 
 ```powershell
 docker version
@@ -42,7 +44,9 @@ docker ps
 ```
 
 应能看到 Client / Server，且 `docker ps` 不报错。  
-若报 `500` / 引擎失败：先装好 WSL2，再重启 Docker Desktop。
+
+若提示 **无法将 “docker” 项识别为…**，见下方「附录 B · `docker` 命令找不到」。  
+若能识别 `docker` 但报 `500` / 引擎失败 / WSL 相关错误：先安装 **WSL2**，再重启 Docker Desktop（见附录 B · WSL）。
 
 ---
 
@@ -235,6 +239,47 @@ powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
 
 ## 附录 B · 常见问题（对着命令修）
 
+### `docker` 命令找不到（无法将 “docker” 项识别为…）
+
+**这通常不是「没装 WSL」**，而是 **PowerShell 找不到 docker 可执行文件（PATH 未生效）**。  
+一键启动 **依赖** `docker` 命令；此问题 **不修好就无法部署**（PG / EMQX 起不来）。
+
+按顺序做：
+
+1. 确认任务栏 / 开始菜单里 **Docker Desktop 已安装并能打开**，界面显示 Running。  
+2. **关闭当前 PowerShell**，重新开一个（安装后旧窗口不会自动刷新 PATH）。  
+3. 仍不行：注销或 **重启电脑**，再开 PowerShell 执行 `docker version`。  
+4. 手动查 CLI 是否存在：
+
+```powershell
+Test-Path "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe"
+Get-Command docker -ErrorAction SilentlyContinue
+```
+
+若 `Test-Path` 为 `True` 但 `Get-Command` 仍找不到，把下面目录加入用户 PATH 后重开终端：
+
+`C:\Program Files\Docker\Docker\resources\bin`
+
+```powershell
+# 仅当前窗口临时生效（验证用）
+$env:Path = "C:\Program Files\Docker\Docker\resources\bin;" + $env:Path
+docker version
+```
+
+5. 若 `Test-Path` 为 `False`：Docker Desktop **未装完整**。卸载后重装，安装向导勾选 **Use WSL 2 based engine**，装完务必重启。
+
+### WSL2 相关（能敲出 `docker`，但引擎起不来）
+
+缺 WSL 时，常见报错是引擎失败 / `WSL` / `500`，**不是**「无法识别 docker」。处理：
+
+```powershell
+wsl --install
+# 或
+wsl --update
+```
+
+然后重启电脑，再打开 Docker Desktop，等到 Running，再执行 `docker ps`。
+
 ### 端口被占用
 
 ```powershell
@@ -247,10 +292,10 @@ powershell -ExecutionPolicy Bypass -File .\Stop-Guangpeng.ps1
 Get-NetTCPConnection -LocalPort 8080,4173 -State Listen
 ```
 
-### Docker 没起来
+### Docker 没起来（命令能识别，但 ps 失败）
 
 ```powershell
-# 打开 Docker Desktop 后重试
+# 打开 Docker Desktop，等到 Running 后重试
 docker ps
 ```
 
