@@ -356,6 +356,15 @@ Get-Content .\.run\frontend.log -Tail 50
 Get-Content .\.run\frontend.err -Tail 50
 ```
 
+### 首次启动报 `database "smart-street-light" does not exist`
+
+全新 Docker 卷里还没有业务库，旧版启动脚本在检测时会误中止。请用 **v0.1.1 之后** 的发布包，或临时强制初始化：
+
+```powershell
+$env:GUANGPENG_FORCE_INIT = "1"
+powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
+```
+
 ### 前端能开但登录失败
 
 确认用的是 **4173** 而不是只开了 8080；并确认第 5 步后端探测成功。

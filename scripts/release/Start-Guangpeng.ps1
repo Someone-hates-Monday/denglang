@@ -74,10 +74,19 @@ $Init = Join-Path $PackRoot "tools\init-db.ps1"
 $forceInit = $env:GUANGPENG_FORCE_INIT -eq "1"
 $needInit = $forceInit
 if (-not $needInit) {
-  $chk = docker exec streetlight-pg psql -U postgres -d smart-street-light -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_name LIKE 'gh_%'" 2>$null
+  # 全新 PG 尚无 smart-street-light 库时，直接连该库会报 FATAL；须 Continue，并视为需要初始化
+  $prevDb = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $chk = docker exec streetlight-pg psql -U postgres -d postgres -tAc "SELECT COUNT(*) FROM pg_database WHERE datname = 'smart-street-light'" 2>$null
   if (-not $chk -or $chk.Trim() -eq "" -or $chk.Trim() -eq "0") {
     $needInit = $true
+  } else {
+    $tbl = docker exec streetlight-pg psql -U postgres -d smart-street-light -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_name LIKE 'gh_%'" 2>$null
+    if (-not $tbl -or $tbl.Trim() -eq "" -or $tbl.Trim() -eq "0") {
+      $needInit = $true
+    }
   }
+  $ErrorActionPreference = $prevDb
 }
 if ($needInit) {
   Write-Host "==> 初始化数据库（首次或 FORCE）..."
