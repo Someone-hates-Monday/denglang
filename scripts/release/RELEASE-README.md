@@ -64,6 +64,8 @@ java -version
 
 输出里应出现 `21`。
 
+若提示 **无法将 “java” 项识别为…**：与 Docker 相同，多半是 **PATH 未刷新**。请 **关掉本窗口、新开 PowerShell**，或注销/重启后再试。仍不行见「附录 B · `java` 命令找不到」。
+
 ---
 
 ## 第 3 步 · 安装 Node.js（用于托管前端页面）
@@ -79,7 +81,8 @@ node -v
 npm -v
 ```
 
-应显示版本号（建议 Node 18+）。
+应显示版本号（建议 Node 18+）。  
+若 `node`/`npm` 无法识别：同样先 **重开终端或重启**，再试。
 
 ---
 
@@ -267,6 +270,31 @@ docker version
 ```
 
 5. 若 `Test-Path` 为 `False`：Docker Desktop **未装完整**。卸载后重装，安装向导勾选 **Use WSL 2 based engine**，装完务必重启。
+
+### `java` 命令找不到（无法将 “java” 项识别为…）
+
+`winget` 显示 Successfully installed 后，**当前这个 PowerShell 窗口通常还读不到新 PATH**。  
+一键启动需要 `java`；找不到则 **后端 jar 起不来**。
+
+1. **关闭本窗口，新开 PowerShell**，执行 `java -version`（应出现 `21`）。  
+2. 仍不行：注销或重启电脑后再试。  
+3. 查找已安装的 JDK：
+
+```powershell
+Get-ChildItem "C:\Program Files\Microsoft" -Filter "java.exe" -Recurse -ErrorAction SilentlyContinue |
+  Select-Object -First 5 FullName
+Get-ChildItem "C:\Program Files\Java","C:\Program Files\Eclipse Adoptium" -Filter "java.exe" -Recurse -ErrorAction SilentlyContinue |
+  Select-Object -First 5 FullName
+```
+
+找到例如 `...\bin\java.exe` 后，临时加入 PATH（把路径改成你机器上的 `bin` 目录）：
+
+```powershell
+$env:Path = "C:\Program Files\Microsoft\jdk-21.x.x.x-hotspot\bin;" + $env:Path
+java -version
+```
+
+或用「设置 → 系统 → 关于 → 高级系统设置 → 环境变量」，在用户 Path 中加入该 `bin` 目录，确定后重开终端。
 
 ### WSL2 相关（能敲出 `docker`，但引擎起不来）
 
