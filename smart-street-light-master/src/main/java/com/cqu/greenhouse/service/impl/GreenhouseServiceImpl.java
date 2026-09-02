@@ -2,6 +2,7 @@ package com.cqu.greenhouse.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.cqu.config.MqttConfig;
+import com.cqu.greenhouse.hardware.BearPiLampBridge;
 import com.cqu.greenhouse.entity.*;
 import com.cqu.greenhouse.mapper.*;
 import com.cqu.greenhouse.service.IGreenhouseService;
@@ -58,6 +59,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
     @Lazy
     @Autowired
     private MqttConfig mqttConfig;
+    @Autowired
+    private BearPiLampBridge bearPiLampBridge;
 
     @org.springframework.beans.factory.annotation.Value("${greenhouse.sim.day-compress-sec:120}")
     private int dayCompressSec;
@@ -380,6 +383,8 @@ public class GreenhouseServiceImpl implements IGreenhouseService {
         device.setPowerOn(p > 0);
         device.setLastSeenAt(LocalDateTime.now());
         deviceMapper.updateById(device);
+
+        bearPiLampBridge.onLampPowerChanged(deviceSn, p > 0, mqttConfig);
 
         Map<String, Object> cmd = new LinkedHashMap<>();
         cmd.put("commandId", "cmd-" + System.currentTimeMillis());

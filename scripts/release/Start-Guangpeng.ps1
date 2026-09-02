@@ -45,17 +45,18 @@ if (-not (Test-Path $Secret)) {
   Write-Host "已生成 config\application-secret.yml（默认密码 123456，可按需修改）"
 }
 
-Write-Host "==> 启动 PostgreSQL + EMQX..."
+Write-Host "==> 启动 PostgreSQL + EMQX + 光棚 MQTT 模拟（gh-hw-sim）..."
 Push-Location (Join-Path $PackRoot "infra")
 $prevEa = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-docker compose -f docker-compose.yml up -d postgres emqx 2>&1 | Out-Null
+docker compose -f docker-compose.yml --profile gh-hw-sim up -d postgres emqx gh-hw-sim 2>&1 | Out-Null
 $composeExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEa
 if ($composeExit -ne 0) {
   $pgUp = docker ps --filter "name=streetlight-pg" --filter "health=healthy" --format "{{.Names}}"
   $emqxUp = docker ps --filter "name=streetlight-emqx" --format "{{.Names}}"
-  if (-not ($pgUp -and $emqxUp)) { throw "Docker 启动失败，请检查 docker compose 输出。" }
+  $simUp = docker ps --filter "name=streetlight-gh-hw-sim" --format "{{.Names}}"
+  if (-not ($pgUp -and $emqxUp -and $simUp)) { throw "Docker 启动失败，请检查 docker compose 输出。" }
   Write-Host "    容器已在运行，继续..."
 }
 Pop-Location

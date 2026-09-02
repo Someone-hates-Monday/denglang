@@ -122,9 +122,9 @@ powershell -ExecutionPolicy Bypass -File .\Start-Guangpeng.ps1
 
 首次会：
 
-1. 启动 PostgreSQL、EMQX 容器  
+1. 启动 PostgreSQL、EMQX、**光棚 MQTT 模拟器**（`gh-hw-sim`，订阅调光指令并回 ACK）  
 2. 自动建库并导入演示数据（若库已存在则跳过）  
-3. 启动后端 `:8080`  
+3. 启动后端 `:8080`（含进程内光场仿真 + 可选 BearPi 灯桥接）  
 4. 启动前端静态站 `:4173`  
 5. 尝试自动打开浏览器  
 
@@ -166,7 +166,7 @@ docker ps
 Invoke-RestMethod http://localhost:8080/users/login -Method POST -ContentType "application/json" -Body '{"username":"admin","password":"admin123"}'
 ```
 
-- `docker ps` 中应有 `streetlight-pg`、`streetlight-emqx`  
+- `docker ps` 中应有 `streetlight-pg`、`streetlight-emqx`、**`streetlight-gh-hw-sim`**  
 - 登录接口返回里 `code` 应为 `200`
 
 ---
@@ -183,8 +183,41 @@ powershell -ExecutionPolicy Bypass -File .\Stop-Guangpeng.ps1
 
 ```powershell
 cd infra
-docker compose down
+docker compose --profile gh-hw-sim down
 cd ..
+```
+
+---
+
+## 附录 C · MQTT 模拟硬件与 BearPi 真机
+
+### 默认（无需额外操作）
+
+一键启动已包含 **gh-hw-sim**：模拟光棚设备订阅 `smart-greenhouse/*/command` 并回 `status` ACK。  
+3D 光场与 AUTO 调光仍主要靠后端**进程内仿真**，与 MQTT 模拟并行不冲突。
+
+自检：
+
+```powershell
+docker ps --filter name=streetlight-gh-hw-sim
+```
+
+### BearPi 真机演示（可选）
+
+1. BearPi 与运行本包的电脑连**同一局域网**，MQTT 指向本机 EMQX：`tcp://<电脑IP>:1883`  
+2. 板端订阅 `smart-light/SN-RM-001/command`（`MANUAL_ON` / `MANUAL_OFF`）  
+3. 在场务光场调节虚拟灯 **`LAMP-ZONE-A-01`（A-S-1）**：
+   - 开度 > 0 → BearPi 灯亮（**不看具体百分比**）
+   - 开度 = 0 → BearPi 灯灭  
+
+可在 EMQX 控制台（`:18083`）查看 topic 收发。
+
+### 路灯页额外模拟（可选，一般答辩不用）
+
+若需「设备」页 7 盏路灯 MQTT 心跳，在 `infra` 目录另启：
+
+```powershell
+docker compose --profile lamp-fleet up -d lamp-fleet
 ```
 
 ---
@@ -244,7 +277,7 @@ Get-Content .\.run\frontend.err -Tail 50
 | `Stop-Guangpeng.ps1` | 停止 jar / 前端 |
 | `zhihui-guangpeng.jar` | 后端 |
 | `web-dist/` | 前端页面 |
-| `infra/` | Docker 与 SQL |
+| `infra/` | Docker、SQL、MQTT 模拟脚本（`infra/scripts/`） |
 | `config/` | 密钥（首次自动生成 `application-secret.yml`） |
 | `tools/init-db.ps1` | 建库脚本（启动时按需调用） |
 

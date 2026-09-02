@@ -27,5 +27,5 @@ foreach ($port in 8080, 4173) {
     }
 }
 
-Write-Host "已停止本机 jar / 静态站。Docker（PG/EMQX）仍在运行；若要全关："
-Write-Host "  cd infra; docker compose down"
+Write-Host "已停止本机 jar / 静态站。Docker（PG/EMQX/模拟器）仍在运行；若要全关："
+Write-Host "  cd infra; docker compose --profile gh-hw-sim down"

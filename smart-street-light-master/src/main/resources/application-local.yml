@@ -21,6 +21,11 @@ greenhouse:
     publish-mqtt-telemetry: false
   control:
     command-timeout-sec: 30
+  # 演示：LAMP-ZONE-A-01 开关镜像到 BearPi（仅 ON/OFF，忽略调光百分比）
+  hardware-bridge:
+    enabled: true
+    lamp-sn: LAMP-ZONE-A-01
+    bearpi-sn: SN-RM-001
 
 llm:
   base-url: https://api.deepseek.com/v1

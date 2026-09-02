@@ -47,9 +47,10 @@ Copy-Item (Join-Path $Backend "target\zhihui-guangpeng.jar") (Join-Path $OutDir 
 # 3) 基础设施与库脚本
 Copy-Item (Join-Path $Backend "docker-compose.yml") (Join-Path $OutDir "infra\docker-compose.yml")
 Copy-Item -Recurse (Join-Path $Backend "sql") (Join-Path $OutDir "infra\sql")
-# 去掉依赖主仓路径的 mqtt 脚本挂载问题：发布 compose 仅保留 PG+EMQX
-$compose = Get-Content (Join-Path $OutDir "infra\docker-compose.yml") -Raw
-# 保留完整 compose；一键脚本只用 up -d（默认服务）
+$scriptsOut = Join-Path $OutDir "infra\scripts"
+New-Item -ItemType Directory -Force -Path $scriptsOut | Out-Null
+Copy-Item (Join-Path $Backend "scripts\mqtt-greenhouse-loop.sh") (Join-Path $scriptsOut "mqtt-greenhouse-loop.sh")
+Copy-Item (Join-Path $Backend "scripts\mqtt-fleet-loop.sh") (Join-Path $scriptsOut "mqtt-fleet-loop.sh")
 
 # 4) 密钥模板
 Copy-Item (Join-Path $Backend "src\main\resources\application-secret-example.yml") `
