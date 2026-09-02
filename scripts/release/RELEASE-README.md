@@ -298,15 +298,35 @@ java -version
 
 ### WSL2 相关（能敲出 `docker`，但引擎起不来）
 
-缺 WSL 时，常见报错是引擎失败 / `WSL` / `500`，**不是**「无法识别 docker」。处理：
+缺 WSL / 引擎未就绪时，常见报错包括：
+
+- `request returned 500 Internal Server Error` … `dockerDesktopLinuxEngine`
+- `Cannot connect to the Docker daemon`
+- `WSL` / `500` / 引擎失败  
+
+**Client 有版本、Server 报 500** = 命令行已找到，但 **Docker Desktop 的 Linux 引擎没跑起来**（本项目必须用引擎起 PG/EMQX）。按顺序：
+
+1. 打开 **Docker Desktop**，等到界面显示 **Running**（不要停在 Starting / Engine stopped）。  
+2. 设置里确认使用 **WSL 2 based engine**（Settings → General）。  
+3. 安装或更新 WSL2（管理员 PowerShell）：
 
 ```powershell
 wsl --install
-# 或
+# 若已装过：
 wsl --update
+wsl --status
 ```
 
-然后重启电脑，再打开 Docker Desktop，等到 Running，再执行 `docker ps`。
+4. **重启电脑**，再开 Docker Desktop，等 Running 后执行：
+
+```powershell
+docker version
+docker ps
+```
+
+此时应同时看到 **Client** 和 **Server**，且 `docker ps` 无报错。  
+
+5. 若仍 500：Docker Desktop → Troubleshoot → **Restart** / **Clean / Purge data**（后者会清空本地镜像，慎用）；或重装 Docker Desktop 并勾选 WSL2。
 
 ### 端口被占用
 
